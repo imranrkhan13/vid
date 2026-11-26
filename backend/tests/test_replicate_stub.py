@@ -1,0 +1,30 @@
+import asyncio, httpx
+from app.providers.base import ProviderContext, GenerationRequest, ProviderError
+from app.providers import replicate as R
+
+def mk(handler, **cfg):
+    p = R.ReplicateProvider(ProviderContext("u", "c", "replicate", config=cfg, secret="tok"))
+    orig = p._client
+    p._client = lambda: httpx.AsyncClient(base_url=R.BASE, transport=httpx.MockTransport(handler), headers={"Authorization": "Bearer tok"})
+    return p
+
+REQ = GenerationRequest("k", "p", "s", 0, "a fox", "", 6, 6, "16:9", 1280, 720, 24)
+
+def test_submit_status_and_402():
+    def h(r):
+        if r.method == "POST":
+            return httpx.Response(402 if r.headers.get("x-fail") else 201, json={"id": "abc"})
+        return httpx.Response(200, json={"status": "processing"})
+    p = mk(h)
+    assert asyncio.run(p.submit_generation(REQ)) == "abc"
+    assert asyncio.run(p.get_job_status("abc")).state == "running"
+    p2 = mk(lambda r: httpx.Response(402))
+    try:
+        asyncio.run(p2.submit_generation(REQ)); assert False
+    except ProviderError as e:
+        assert e.code == "CREDITS_EXHAUSTED"
+
+def test_free_flag():
+    p = mk(lambda r: httpx.Response(200), free_trial_only=True)
+    assert asyncio.run(p.estimate_cost(REQ)).is_paid is False
+    assert asyncio.run(mk(lambda r: httpx.Response(200)).estimate_cost(REQ)).is_paid is True
