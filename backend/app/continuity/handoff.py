@@ -16,7 +16,7 @@ def build_handoff(db: Session, project: VideoProject, scene: VideoScene, *, reas
                   to_caps: dict[str, Any] | None = None, requested_seconds: float | None = None) -> dict[str, Any]:
     style = db.get(StyleProfile, (project.id, project.style_version))
     chars = (db.query(Character).join(ProjectCharacter, ProjectCharacter.character_id == Character.id)
-             .filter(ProjectCharacter.project_id == project.id).all())
+             .filter(ProjectCharacter.project_id == project.id).order_by(Character.created_at, Character.id).all())
     wanted = set(scene.characters or [])
     char_out, refs = [], []
     for c in chars:
