@@ -57,4 +57,12 @@ Real vs mock, kept separate:
 
 Tests: SQLite and PostgreSQL 16 runs both pass (storage budget, tenant isolation, blob purge on project delete, storage-pause E2E, bounded wait, Replicate stub, security, durable media, acceptance, recovery).
 
-Known gaps: Hugging Face is not implemented (no free route). Pollinations adapter is not live-verified. The free Neon and Render tiers have storage, CPU and cold-start limits. The full 33-section spec is not complete; see the per-section table above.
+Known gaps (what a user would still miss):
+
+- Real provider breadth: only Replicate (minimax/video-01) has a real adapter, and it has never run through the app against the real API. Pollinations has an adapter that is not live-verified. Hugging Face, WaveSpeed, fal, Runway, Luma, Kling, Veo, MiniMax, Stability, Together, Leonardo, Hedra, Segmind, BytePlus and Alibaba are researched (docs/PROVIDER_RESEARCH.md) but have no adapter. Most are paid, so a free user cannot use them. Custom HTTP and manual import are the escape routes.
+- Video quality: all end-to-end results so far are MOCK output. Real model quality, motion continuity and character consistency across real providers are unmeasured.
+- AI planning and analysis: the scene planner is a deterministic template, not an LLM. There is no character identity matching, no model-based quality judgment, and no learned provider scoring.
+- Audio: narration upload only. No text-to-speech provider, no music.
+- Section 20 (open-source GPU workers) and section 26 (benchmarking) are not done.
+- Hosting limits: free Render (cold starts, 0.1 CPU, 512MB RAM) and free Neon (storage cap). Long or high-resolution real videos may exceed them. The old Render Postgres expires in about 30 days and is no longer used.
+- The full 33-section spec is not complete; see the table above.
