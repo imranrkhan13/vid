@@ -10,6 +10,7 @@ AI-generated MP4s (2s and 4s clips). Facts and limits, none of them hard-coded a
 - Output is small (about 704x384 at <=8s). The model is a weights-available open model; check its license before commercial use."""
 from __future__ import annotations
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -61,8 +62,9 @@ class HFSpaceLTXProvider(VideoProvider):
         if "quota" in m or "zerogpu" in m or "exceeded" in m:
             import re
             t = re.search(r"try again in (\d+):(\d+):(\d+)", m)
-            wait = int(t.group(1)) * 3600 + int(t.group(2)) * 60 + int(t.group(3)) if t else None
-            return ProviderError("CREDITS_EXHAUSTED", "free ZeroGPU quota used up for this caller (anonymous, or the connected free Hugging Face account)" + (f"; the Space says retry in {wait}s" if wait else ""), retry_after=float(wait) if wait else None)
+            wait = int(t.group(1)) * 3600 + int(t.group(2)) * 60 + int(t.group(3)) if t else 0
+            wait = max(wait, 900)      # ZeroGPU recovers on a rolling window and may report 0s; do not hammer the Space
+            return ProviderError("CREDITS_EXHAUSTED", "free ZeroGPU quota used up for this caller (anonymous, or the connected free Hugging Face account)" + (f"; the Space says retry in {wait}s" if wait else ""), retry_after=float(wait), reset_at=(datetime.now(timezone.utc) + timedelta(seconds=wait)).isoformat())
         if "queue" in m and "full" in m or "too many" in m or "busy" in m:
             return ProviderError("PROVIDER_UNAVAILABLE", "the Space queue is full")
         if "nsfw" in m or "safety" in m or "inappropriate" in m:
