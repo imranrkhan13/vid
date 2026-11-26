@@ -27,7 +27,7 @@ from app.providers.base import GenerationRequest, PROVIDER_LEVEL_ERRORS, Provide
 from app.providers.registry import build_provider, context_for
 from app.quality.qa import evaluate_clip
 from app.routing.router import select_provider
-from app.storage.local import project_dir
+from app.storage.local import project_dir, persist_file, restore_file
 
 PROJECT_ACTIVE = {"READY", "SELECTING_PROVIDER", "GENERATING", "DOWNLOADING", "VALIDATING", "RETRYING", "SWITCHING_PROVIDER",
                   "WAITING_FOR_CREDITS", "WAITING_FOR_PROVIDER", "MANUAL_ACTION_REQUIRED", "COMPOSING", "FINAL_VALIDATION"}
@@ -156,6 +156,7 @@ async def start_generation(db: Session, p: VideoProject, s: VideoScene):
     await refresh_quota(db, p.user_id)
     n = s.attempt_counter + 1
     req = scene_request(db, p, s, n)
+    restore_file(p.last_accepted_frame)
     prev_ok = db.query(VideoScene).filter(VideoScene.project_id == p.id, VideoScene.idx < s.idx, VideoScene.status == "ACCEPTED").count() > 0
     has_refs = bool(reference_images(build_handoff(db, p, s, reason="probe", previous_provider=p.last_accepted_provider)))
     exclude = {c.id for c in db.query(ProviderCredential).filter(ProviderCredential.user_id == p.user_id).all() if breaker_open(db, p.user_id, c.id)}
@@ -413,6 +414,8 @@ async def accept_artifact(db: Session, p: VideoProject, s: VideoScene, job: Gene
     last = await asyncio.to_thread(fx.extract_frame, art.path, d / f"{s.idx + 1:02d}_{art.id}_last.png", "last")
     meta = dict(art.meta or {})
     meta.update(first_frame=str(first), last_frame=str(last))
+    for _f in (art.path, first, last):
+        await asyncio.to_thread(persist_file, _f)
     # ending positions reported by the (mock) provider drive the next scene's start; real providers have none
     if job and job.provider_id.startswith("mock"):
         try:
@@ -552,8 +555,11 @@ async def process_export(export_id: str):
         clips = []
         for s in scenes:
             a = db.get(GenerationArtifact, s.accepted_artifact_id)
+            restore_file(a.path)
             clips.append({"path": a.path, "duration": s.duration})
         mp4 = out_dir / "final.mp4"
+        if audio:
+            restore_file(audio.path)
         opts = ex.options or {}
         cres = await asyncio.to_thread(compose, clips=clips, width=p.width, height=p.height, fps=p.fps, out_path=mp4, audio_path=Path(audio.path) if audio else None,
                                        srt_path=srt, burn_subtitles=bool(opts.get("burn_subtitles")), transition=opts.get("transition", "cut"), workdir=out_dir / "work")
@@ -565,6 +571,8 @@ async def process_export(export_id: str):
         sb = [{"idx": s.idx, "title": s.title, "description": s.description, "prompt": s.prompt, "duration": s.duration, "start": s.start_time, "camera": s.camera,
                "narration": s.narration, "characters": s.characters} for s in scenes]
         (out_dir / "storyboard.json").write_text(json.dumps(sb, indent=2))
+        for _f in (mp4, srt, out_dir / "report.json", out_dir / "storyboard.json"):
+            await asyncio.to_thread(persist_file, _f)
         ex.files = {"video": str(mp4), "subtitles": str(srt), "report": str(out_dir / "report.json"), "storyboard": str(out_dir / "storyboard.json")}
         ex.report = {"validation": val, "notes": cres["notes"]}
         if val["ok"]:
