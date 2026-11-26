@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.audio.align import segments_from_scenes, to_srt
@@ -167,6 +168,14 @@ async def start_generation(db: Session, p: VideoProject, s: VideoScene):
         reasons = "; ".join(f"{r.get('provider')}: {r['reason']}" for r in sel.rejected[:6]) or "no provider connected"
         if sel.wait_reason == "MANUAL_ACTION_REQUIRED":
             await _manual_job(db, p, s)
+            return
+        last_resume = db.query(func.max(WorkflowEvent.id)).filter(WorkflowEvent.project_id == p.id, WorkflowEvent.kind == "resumed").scalar() or 0
+        waits = db.query(WorkflowEvent).filter(WorkflowEvent.project_id == p.id, WorkflowEvent.scene_id == s.id, WorkflowEvent.kind == "no_provider",
+                                               WorkflowEvent.id > last_resume).count()
+        if waits >= int(os.environ.get("VGOH_MAX_PROVIDER_WAITS", "150")):
+            set_scene(db, s, "WAITING_FOR_PROVIDER", reasons)
+            set_project(db, p, "PAUSED", f"No eligible provider after {waits} checks ({reasons[:300]}). Connect or top up a provider, then resume.")
+            emit(db, p.id, "wait_limit", f"scene {s.idx + 1}: stopped waiting after {waits} checks; accepted clips are kept", None, s.id)
             return
         s.not_before = _wait_until(WAIT_SECONDS)
         set_scene(db, s, sel.wait_reason or "WAITING_FOR_PROVIDER", reasons)
