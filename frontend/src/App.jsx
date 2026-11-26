@@ -80,7 +80,7 @@ function Console({ pid }) {
 
 function Project({ pid }) {
   const [st, reload] = useAsync(() => Promise.all([get('/projects/' + pid), get(`/projects/${pid}/scenes`), get(`/projects/${pid}/timeline`), get(`/projects/${pid}/handoffs`), get(`/projects/${pid}/manual-tasks`)]), [pid])
-  const [tab, setTab] = useState('board'), [err, setErr] = useState(''), [exp, setExp] = useState(null)
+  const [tab, setTab] = useState('board'), [err, setErr] = useState(''), [exp, setExp] = useState(null), [msg, setMsg] = useState('')
   useEffect(() => { const t = setInterval(reload, 3000); return () => clearInterval(t) }, [reload])
   const act = async (fn) => { setErr(''); try { await fn(); reload() } catch (x) { setErr(x.message) } }
   const doExport = () => act(async () => { const e = await post(`/projects/${pid}/export`, {}); const poll = async () => { const x = await get('/exports/' + e.id); setExp(x); if (!['COMPLETED', 'FAILED'].includes(x.status)) setTimeout(poll, 1500) }; poll() })
@@ -99,9 +99,9 @@ function Project({ pid }) {
       {p.status === 'PAUSED' && <button onClick={() => act(() => post(`/projects/${pid}/resume`))}>Resume</button>}
       {['WAITING_FOR_CREDITS', 'WAITING_FOR_PROVIDER', 'FAILED'].includes(p.status) && <button onClick={() => act(() => post(`/projects/${pid}/resume`))}>Retry now</button>}
       {!['COMPLETED', 'CANCELLED'].includes(p.status) && <button className="dng" onClick={() => confirm('Cancel this project?') && act(() => post(`/projects/${pid}/cancel`))}>Cancel</button>}
-      {tl.accepted >= tl.total - 0.05 && <button onClick={doExport}>Export final video</button>}</div>
+      <button style={{ background: 'var(--panel2)' }} title="Free local voice (eSpeak NG). Robotic; upload a recording for a better one." onClick={() => act(async () => { const r = await post(`/projects/${pid}/narration/synthesize`, {}); setMsg(`Voiced ${r.segments} narration segments (${fmt(r.duration)}s, free local robotic voice)`) })}>Add free voice</button>{tl.accepted >= tl.total - 0.05 && <button onClick={doExport}>Export final video</button>}</div>
     {['WAITING_FOR_CREDITS', 'WAITING_FOR_PROVIDER'].includes(p.status) && <div className="banner">Waiting: no eligible provider has credit. Connect another provider in <a href="#/providers">Providers</a>; generation continues from the same scene automatically.</div>}
-    {err && <div className="err">{err}</div>}
+    {err && <div className="err">{err}</div>}{msg && <div className="card" style={{ borderColor: "var(--ok, #3a7)" }}>{msg}</div>}
     <div className="tabs">{['board', 'timeline', 'console', 'handoffs', 'manual', 'export'].map((t) => <a key={t} href="#" className={tab === t ? 'on' : ''} onClick={(e) => { e.preventDefault(); setTab(t) }}>{{ board: 'Storyboard', timeline: 'Timeline', console: 'Live console', handoffs: 'Handoffs', manual: 'Manual tasks (' + manual.length + ')', export: 'Export' }[t]}</a>)}</div>
     {tab === 'board' && <div className="grid">{scenes.map((s) => <SceneCard key={s.id} s={s} p={p} act={act} />)}</div>}
     {tab === 'timeline' && <div className="card"><div className="tl">{tl.scenes.map((s) => <div key={s.scene_id} title={s.title} style={{ flex: s.duration, background: colors[s.status] || 'var(--panel2)' }}>{s.idx + 1}{s.provider ? ' · ' + s.provider : ''}</div>)}</div>
