@@ -43,7 +43,8 @@ def test_catalog_fits_columns():
 def test_free_trial_flag_rejected_for_unverified_user(monkeypatch):
     from starlette.testclient import TestClient
     from app.main import app
-    monkeypatch.delenv("VGOH_FREE_TRIAL_VERIFIED_EMAILS", raising=False)
+    monkeypatch.setenv("VGOH_FREE_TRIAL_VERIFIED_USER_IDS", "usr_someone_else")
+    monkeypatch.setenv("VGOH_FREE_TRIAL_VERIFIED_EMAILS", "ft@example.com")  # an email list must never grant anything
     with TestClient(app) as cl:
         r = cl.post("/api/v1/auth/register", json={"email": "ft@example.com", "password": "pw-123456-abc", "name": "t"}, headers={"X-VGOH": "1"})
         assert r.status_code in (200, 201), r.text
