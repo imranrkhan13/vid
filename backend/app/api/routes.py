@@ -316,6 +316,8 @@ def delete_project(pid: str, user: User = Depends(A.current_user), db: Session =
     p = project_of(db, user, pid)
     if p.status in ("GENERATING", "COMPOSING"):
         raise HTTPException(409, "cancel the project first")
+    from app.storage.local import purge_tree
+    purge_tree(project_dir(user.id, p.id))
     shutil.rmtree(project_dir(user.id, p.id), ignore_errors=True)
     db.query(ProjectCharacter).filter_by(project_id=p.id).delete()
     for m in (WorkflowEvent,):
