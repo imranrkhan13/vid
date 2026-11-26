@@ -19,7 +19,8 @@ def _run():
         try:
             loop.run_until_complete(engine.tick())
         except Exception as e:  # noqa: BLE001
-            print("worker tick error:", repr(e))
+            from app.providers.base import scrub
+            print("worker tick error:", scrub(repr(e)))
         _stop.wait(settings.tick_seconds)
 
 
