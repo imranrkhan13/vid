@@ -45,6 +45,8 @@ def context_for(cred: ProviderCredential) -> ProviderContext:
     secret = None
     if cred.secret_enc:
         secret = decrypt_secret(cred.secret_enc, f"{cred.user_id}|{cred.provider_id}|{cred.id}")
+    from .base import register_secret
+    register_secret(secret)
     return ProviderContext(user_id=cred.user_id, credential_id=cred.id, provider_id=cred.provider_id, config=dict(cred.config or {}), secret=secret)
 
 
