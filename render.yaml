@@ -10,6 +10,12 @@ services:
         fromDatabase: { name: vgoh-db, property: connectionString }
       - key: VGOH_MASTER_KEY
         generateValue: true
+      - key: VGOH_COMPOSE_SEGMENTED
+        value: "1"
+      - key: VGOH_X264_PRESET
+        value: veryfast
+      - key: VGOH_FFMPEG_THREADS
+        value: "1"
       - key: VGOH_COOKIE_SECURE
         value: "1"
 databases:
