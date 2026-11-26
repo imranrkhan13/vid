@@ -797,6 +797,12 @@ async def connect(provider_id: str, body: Connect, req: Request, user: User = De
             raise HTTPException(422, "free-trial mode is unverified for this account. Connect without it: the pool is treated as paid and stays blocked unless you approve paid spend.")
     if provider_id == "replicate" and body.config.get("free_trial_only") and (body.balance is None or body.balance <= 0):
         raise HTTPException(422, "free-trial mode needs a run budget (number of free runs you saw available); the provider does not report it")
+    if provider_id == "llm_openai_compat":
+        from app.providers.custom_http import validate_base_url
+        try:
+            validate_base_url(str(body.config.get("base_url", "")))
+        except ProviderError as e:
+            raise HTTPException(422, f"invalid planner endpoint: {e.message}")
     cred = ProviderCredential(user_id=user.id, provider_id=provider_id, label=body.label, config=body.config)
     db.add(cred)
     db.flush()
@@ -805,6 +811,8 @@ async def connect(provider_id: str, body: Connect, req: Request, user: User = De
         cred.secret_hint = "…" + body.secret[-4:] if len(body.secret) >= 12 else "set"
     db.commit()
     audit(db, user, "provider_connect", provider_id, req)
+    if provider_id == "llm_openai_compat":      # planner only: no quota pool, no video provider adapter
+        return {**ser_cred(db, cred), "health": {"ok": True, "detail": "planner endpoint saved; checked when you plan"}}
     try:
         prov = build_provider(provider_id, context_for(cred))
         q = await prov.get_quota()
