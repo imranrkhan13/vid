@@ -93,6 +93,28 @@ def persist_file(path) -> None:
         db.close()
 
 
+def purge_tree(directory) -> int:
+    """Delete the database copies of every media file under a directory (project delete). Returns rows removed."""
+    if not _durable():
+        return 0
+    from app.database.models import MediaBlob
+    from app.database.session import new_session
+    root = str(resolve_inside(directory)).rstrip("/") + "/"
+    db = new_session()
+    try:
+        esc = root.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        rows = db.query(MediaBlob).filter(MediaBlob.path.like(esc + "%", escape="\\")).all()
+        n = 0
+        for r in rows:
+            if r.path.startswith(root):  # exact prefix check, LIKE only narrows
+                db.delete(r)
+                n += 1
+        db.commit()
+        return n
+    finally:
+        db.close()
+
+
 def restore_file(path) -> bool:
     """Recreate a missing media file from its database copy. Returns True when the file exists afterwards."""
     if not path:
