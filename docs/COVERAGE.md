@@ -76,3 +76,8 @@ Known gaps (what a user would still miss):
 - 04:05: speech verified by transcription of the live exported MP4 audio ("A friendly cloud holds tiny drops of water. When the drops grow heavy, they fall as rain."). This confirms intelligibility only, not voice quality.
 - 04:05: scrubbing now also covers workflow events, job errors, the worker print, HTTP error details, a generic 500 handler (class name only) and every log record including exception tracebacks, for credentials the server has handled since boot. Limit: a secret is only known after it is first decrypted; a secret the server has never loaded cannot appear in its output.
 - 04:05: THIRD_PARTY_NOTICES.md added (eSpeak NG GPL-3.0, source link, ctypes use, how to remove). GPL combined-work question is not legally reviewed.
+
+## Update 04:35 (real generation)
+- Real AI video route: `hf_space_ltx` (free shared Hugging Face ZeroGPU Space, LTX-Video 0.9.8 13B distilled). One real clip (4.034s, 384x704) was generated through the live app and accepted by QA. The second scene was QA-rejected for first-frame continuity; an image-to-video continuity path was added and is only stub-tested. NO full real project has been exported yet.
+- Blocker: anonymous ZeroGPU quota (about 3 short clips per IP). A free Hugging Face token should raise it; not yet obtained. Reset time is unknown unless the Space reports one.
+- Output is small (about 704x384 at most) and is upscaled at export; the license is LTXV Open Weights 0.X (commercial use free under US$10M revenue).
