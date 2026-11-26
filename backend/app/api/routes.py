@@ -22,7 +22,7 @@ from app.directors import director as D
 from app.media import ffmpeg as fx
 from app.providers.base import ProviderError
 from app.providers.registry import build_provider, context_for
-from app.storage.local import project_dir, safe_name, persist_file, restore_file
+from app.storage.local import project_dir, safe_name, persist_file as _persist, restore_file, StorageBudgetError
 from app.workflows import engine as E
 
 router = APIRouter(prefix="/api/v1")
@@ -105,9 +105,25 @@ def ser_scene(s: VideoScene) -> dict[str, Any]:
     return {c.name: getattr(s, c.name) for c in s.__table__.columns if c.name not in ("updated_at",)}
 
 
+def persist_file(dest):
+    try:
+        _persist(dest)
+    except StorageBudgetError:
+        Path(dest).unlink(missing_ok=True)
+        raise HTTPException(413, "storage budget reached; delete old projects or media first")
+
+
+def public_state(cs: dict[str, Any]) -> dict[str, Any]:
+    """Never expose server filesystem paths to the browser."""
+    cs = dict(cs)
+    if cs.get("last_accepted_frame"):
+        cs["last_accepted_frame"] = "available"
+    return cs
+
+
 def ser_project(db: Session, p: VideoProject) -> dict[str, Any]:
     d = {c.name: getattr(p, c.name) for c in p.__table__.columns if c.name not in ("last_accepted_frame",)}
-    d["canonical_state"] = E.canonical_state(db, p)
+    d["canonical_state"] = public_state(E.canonical_state(db, p))
     return d
 
 
@@ -235,6 +251,9 @@ def create_project(body: ProjectIn, user: User = Depends(A.current_user), db: Se
         raise HTTPException(422, "aspect_ratio must be 9:16, 16:9 or 1:1")
     if body.mode not in ("free_only", "open_source_only", "lowest_cost", "balanced", "max_quality"):
         raise HTTPException(422, "unknown mode")
+    import os
+    if db.query(VideoProject).filter(VideoProject.user_id == user.id).count() >= int(os.environ.get("VGOH_MAX_PROJECTS", "12")):
+        raise HTTPException(429, "project limit reached for this account; delete an old project first")
     w, h = (RES_720 if body.resolution == "720p" else ASPECTS)[body.aspect_ratio]
     chars = []
     for cid in body.character_ids:
@@ -264,7 +283,7 @@ def get_project(pid: str, user: User = Depends(A.current_user), db: Session = De
     p = project_of(db, user, pid)
     d = ser_project(db, p)
     d["scenes"] = [ser_scene(s) for s in db.query(VideoScene).filter_by(project_id=p.id).order_by(VideoScene.idx).all()]
-    d["characters"] = [ser_char(db, c) for c in db.query(Character).join(ProjectCharacter, ProjectCharacter.character_id == Character.id).filter(ProjectCharacter.project_id == p.id).all()]
+    d["characters"] = [ser_char(db, c) for c in db.query(Character).join(ProjectCharacter, ProjectCharacter.character_id == Character.id).filter(ProjectCharacter.project_id == p.id).order_by(Character.created_at, Character.id).all()]
     exps = db.query(ExportJob).filter_by(project_id=p.id).order_by(ExportJob.created_at.desc()).all()
     d["exports"] = [{"id": e.id, "status": e.status, "error": e.error, "created_at": e.created_at, "files": list((e.files or {}).keys()), "report": e.report} for e in exps]
     return d
@@ -314,7 +333,7 @@ async def plan_project(pid: str, body: dict[str, Any] | None = None, user: User 
     if db.query(VideoScene).filter(VideoScene.project_id == p.id, VideoScene.status == "ACCEPTED").count():
         raise HTTPException(409, "accepted scenes exist; edit or regenerate individual scenes instead of re-planning")
     E.set_project(db, p, "PLANNING")
-    chars = [{"name": c.name, "profile": c.profile} for c in db.query(Character).join(ProjectCharacter, ProjectCharacter.character_id == Character.id).filter(ProjectCharacter.project_id == p.id).all()]
+    chars = [{"name": c.name, "profile": c.profile} for c in db.query(Character).join(ProjectCharacter, ProjectCharacter.character_id == Character.id).filter(ProjectCharacter.project_id == p.id).order_by(Character.created_at, Character.id).all()]
     brief = dict(p.brief)
     brief["target_duration"] = p.target_duration
     plan = None
@@ -429,7 +448,7 @@ async def cancel(pid: str, user: User = Depends(A.current_user), db: Session = D
 
 @router.get("/projects/{pid}/state")
 def canonical(pid: str, user: User = Depends(A.current_user), db: Session = Depends(A.get_db)):
-    return E.canonical_state(db, project_of(db, user, pid))
+    return public_state(E.canonical_state(db, project_of(db, user, pid)))
 
 
 @router.get("/projects/{pid}/scenes")
@@ -766,6 +785,8 @@ async def connect(provider_id: str, body: Connect, req: Request, user: User = De
         raise HTTPException(404 if g is None else 422, "provider not available for connection" if g else "unknown provider")
     if db.query(ProviderCredential).filter_by(user_id=user.id, provider_id=provider_id, label=body.label).first():
         raise HTTPException(409, "a connection with this label exists; delete it first or use another label")
+    if provider_id == "replicate" and body.config.get("free_trial_only") and (body.balance is None or body.balance <= 0):
+        raise HTTPException(422, "free-trial mode needs a run budget (number of free runs you saw available); the provider does not report it")
     cred = ProviderCredential(user_id=user.id, provider_id=provider_id, label=body.label, config=body.config)
     db.add(cred)
     db.flush()
@@ -790,7 +811,7 @@ async def connect(provider_id: str, body: Connect, req: Request, user: User = De
         src, avail = q.source, q.available
         if avail is None and body.balance is not None:
             src, avail = "user_entered", body.balance
-        db.add(QuotaPool(user_id=user.id, credential_id=cred.id, provider_id=provider_id, unit=q.unit if q.source != "unknown" else body.unit, balance_source=src, available=avail,
+        db.add(QuotaPool(user_id=user.id, credential_id=cred.id, provider_id=provider_id, unit=q.unit if q.source != "unknown" else ("runs" if (provider_id == "replicate" and body.config.get("free_trial_only")) else body.unit), balance_source=src, available=avail,
                          is_paid=bool(body.is_paid or provider_id == "pollinations" or (provider_id == "replicate" and not body.config.get("free_trial_only")) or (provider_id == "custom_http" and body.config.get("paid", True))), confidence="high" if src == "verified_api" else "low", reset_at=q.reset_at))
         db.commit()
     for p in db.query(VideoProject).filter(VideoProject.user_id == user.id, VideoProject.status.in_(["WAITING_FOR_CREDITS", "WAITING_FOR_PROVIDER"])).all():
