@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, Index
+from sqlalchemy import LargeBinary, JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, Index
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from app.core.security import new_id
@@ -390,3 +390,13 @@ class AuditLog(Base):
     detail: Mapped[str | None] = mapped_column(Text)
     ip: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class MediaBlob(Base):
+    """Durable copy of a generated/uploaded media file, so ephemeral-disk hosts can resume after restart.
+    Rows are keyed by the file's path under the media root; only the owner's own projects ever write them."""
+    __tablename__ = "media_blobs"
+    path: Mapped[str] = mapped_column(String(600), primary_key=True)
+    size: Mapped[int] = mapped_column(Integer, default=0)
+    data: Mapped[bytes] = mapped_column(LargeBinary)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
