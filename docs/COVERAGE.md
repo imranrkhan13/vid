@@ -66,3 +66,13 @@ Known gaps (what a user would still miss):
 - Section 20 (open-source GPU workers) and section 26 (benchmarking) are not done.
 - Hosting limits: free Render (cold starts, 0.1 CPU, 512MB RAM) and free Neon (storage cap). Long or high-resolution real videos may exceed them. The old Render Postgres expires in about 30 days and is no longer used.
 - The full 33-section spec is not complete; see the table above.
+
+
+## Update 04:00 (security + voice)
+- Outbound DNS rebinding: custom HTTP provider and BYOK planner now use `app/core/netguard.py` (resolve per request, require all answers public, connect to the validated IP with original Host/SNI). Tested with a resolver that changes its answer.
+- Secret canaries: provider errors scrub registered credentials (echoed upstream bodies); canary test checks error text, planner note, project, events and provider list.
+- Narration voice: free local eSpeak NG (GPL-3.0, in-process, no network/key/cost). Robotic voice, NOT a neural voice. Per-segment timing mixed with ffmpeg into master narration; export includes it. "Add free voice" button.
+- Still missing: neural/natural TTS, lip sync, music, real provider generation (no real clip verified yet).
+- 04:05: speech verified by transcription of the live exported MP4 audio ("A friendly cloud holds tiny drops of water. When the drops grow heavy, they fall as rain."). This confirms intelligibility only, not voice quality.
+- 04:05: scrubbing now also covers workflow events, job errors, the worker print, HTTP error details, a generic 500 handler (class name only) and every log record including exception tracebacks, for credentials the server has handled since boot. Limit: a secret is only known after it is first decrypted; a secret the server has never loaded cannot appear in its output.
+- 04:05: THIRD_PARTY_NOTICES.md added (eSpeak NG GPL-3.0, source link, ctypes use, how to remove). GPL combined-work question is not legally reviewed.
