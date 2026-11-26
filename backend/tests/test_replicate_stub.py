@@ -50,3 +50,12 @@ def test_free_trial_flag_rejected_for_unverified_user(env, monkeypatch):
         assert r.status_code in (200, 201), r.text
         r = cl.post("/api/v1/providers/replicate/connect", json={"label": "x", "secret": "tok-123456789012", "balance": 3, "config": {"free_trial_only": True}}, headers={"X-VGOH": "1"})
         assert r.status_code == 422 and "unverified" in r.text
+
+
+def test_delivery_url_host_check_is_exact():
+    from app.providers.replicate import _is_delivery_url as ok
+    assert ok("https://replicate.delivery/x/out.mp4") and ok("https://pbxt.replicate.delivery/x.mp4")
+    assert not ok("https://evilreplicate.delivery/x.mp4")
+    assert not ok("https://replicate.delivery.evil.com/x.mp4")
+    assert not ok("https://replicate.delivery@evil.com/x.mp4")
+    assert not ok("http://replicate.delivery/x.mp4") and not ok("https://replicate.delivery:8443/x.mp4")
