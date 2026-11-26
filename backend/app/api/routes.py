@@ -22,7 +22,7 @@ from app.directors import director as D
 from app.media import ffmpeg as fx
 from app.providers.base import ProviderError
 from app.providers.registry import build_provider, context_for
-from app.storage.local import project_dir, safe_name
+from app.storage.local import project_dir, safe_name, persist_file, restore_file
 from app.workflows import engine as E
 
 router = APIRouter(prefix="/api/v1")
@@ -190,6 +190,7 @@ async def upload_reference(cid: str, req: Request, kind: str = "front", filename
         raise HTTPException(415, "reference must be png, jpg or webp")
     dest = project_dir(user.id, "characters") / f"{c.id}_{kind}_{fn}"
     await read_upload(req, dest, 15 * 1024 * 1024)
+    persist_file(dest)
     try:
         import cv2
         if cv2.imread(str(dest)) is None:
@@ -591,6 +592,7 @@ async def import_clip(sid: str, req: Request, filename: str = "clip.mp4", user: 
         raise HTTPException(415, "clip must be mp4, mov, webm or mkv")
     dest = project_dir(user.id, p.id) / "clips" / f"{s.idx + 1:02d}_import_{safe_name(user.id)[-6:]}_{fn}"
     await read_upload(req, dest)
+    persist_file(dest)
     try:
         info = fx.probe(dest)
         if not info["has_video"]:
@@ -644,6 +646,7 @@ async def upload_audio(pid: str, req: Request, filename: str = "narration.wav", 
         raise HTTPException(415, "audio must be wav, mp3, m4a, aac, ogg or flac")
     dest = project_dir(user.id, p.id) / "audio" / fn
     await read_upload(req, dest)
+    persist_file(dest)
     try:
         info = fx.probe(dest)
         if not info["has_audio"]:
@@ -703,6 +706,7 @@ def get_export(eid: str, user: User = Depends(A.current_user), db: Session = Dep
 def export_file(eid: str, kind: str, user: User = Depends(A.current_user), db: Session = Depends(A.get_db)):
     e = A.owned(db, ExportJob, eid, user)
     path = (e.files or {}).get(kind)
+    restore_file(path)
     if not path or not Path(path).exists():
         raise HTTPException(404, "file not available")
     from app.storage.local import resolve_inside
@@ -716,6 +720,7 @@ def media(artifact_id: str, frame: str | None = None, user: User = Depends(A.cur
     a = A.owned(db, GenerationArtifact, artifact_id, user)
     from app.storage.local import resolve_inside
     path = (a.meta or {}).get(f"{frame}_frame") if frame in ("first", "last") else a.path
+    restore_file(path)
     if not path or not Path(path).exists():
         raise HTTPException(404, "not available")
     return FileResponse(resolve_inside(path), media_type="image/png" if frame else "video/mp4")
