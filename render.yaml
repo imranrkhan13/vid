@@ -16,6 +16,8 @@ services:
         value: veryfast
       - key: VGOH_FFMPEG_THREADS
         value: "1"
+      - key: VGOH_DB_BLOBS
+        value: "1"
       - key: VGOH_COOKIE_SECURE
         value: "1"
 databases:
