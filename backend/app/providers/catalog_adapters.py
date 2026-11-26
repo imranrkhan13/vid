@@ -6,4 +6,7 @@ def build_real_provider(provider_id: str, ctx: ProviderContext) -> VideoProvider
     if provider_id == "pollinations":
         from .pollinations import PollinationsProvider
         return PollinationsProvider(ctx)
+    if provider_id == "replicate":
+        from .replicate import ReplicateProvider
+        return ReplicateProvider(ctx)
     return None
