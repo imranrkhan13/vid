@@ -46,7 +46,8 @@ class CustomHttpProvider(VideoProvider):
         headers = {}
         if self.ctx.secret:
             headers[self.ctx.config.get("auth_header", "Authorization")] = (self.ctx.config.get("auth_prefix", "Bearer ") + self.ctx.secret)
-        return httpx.AsyncClient(base_url=base, headers=headers, timeout=30, follow_redirects=False)
+        from app.core.netguard import pinned_client
+        return pinned_client(base_url=base, headers=headers, timeout=30)
 
     @staticmethod
     def _norm(resp: httpx.Response):
