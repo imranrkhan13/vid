@@ -686,6 +686,47 @@ async def upload_audio(pid: str, req: Request, filename: str = "narration.wav", 
     return {"id": t.id, "duration": info["duration"], "warning": warn}
 
 
+@router.post("/projects/{pid}/narration/synthesize")
+def synthesize_narration(pid: str, user: User = Depends(A.current_user), db: Session = Depends(A.get_db)):
+    """Free local voice (eSpeak NG): speaks each narration segment at its start time and stores it as the master narration."""
+    from app.media import tts
+    p = project_of(db, user, pid)
+    rows = db.query(NarrationSegment).filter_by(project_id=p.id).order_by(NarrationSegment.idx).all()
+    if not rows:
+        E.ensure_narration(db, p, db.query(VideoScene).filter_by(project_id=p.id).order_by(VideoScene.idx).all())
+        rows = db.query(NarrationSegment).filter_by(project_id=p.id).order_by(NarrationSegment.idx).all()
+    rows = [r for r in rows if (r.text or "").strip()]
+    if not rows:
+        raise HTTPException(422, "no narration text to speak; add a script first")
+    if not tts.available():
+        raise HTTPException(503, "local text-to-speech is not available on this server")
+    tmp = project_dir(user.id, p.id) / "audio" / "tts_parts"
+    tmp.mkdir(parents=True, exist_ok=True)
+    cmd, filt, labels = ["ffmpeg", "-y"], [], ""
+    try:
+        for i, r in enumerate(rows):
+            part = tmp / f"seg{i}.wav"
+            tts.synthesize(r.text, part)
+            cmd += ["-i", str(part)]
+            ms = int(max(0.0, r.start_time) * 1000)
+            filt.append(f"[{i}:a]adelay={ms}|{ms},apad[a{i}]")
+            labels += f"[a{i}]"
+        dest = project_dir(user.id, p.id) / "audio" / "tts_narration.wav"
+        filt.append(f"{labels}amix=inputs={len(rows)}:normalize=0,atrim=0:{p.target_duration:.3f}[out]")
+        fx.run(cmd + ["-filter_complex", ";".join(filt), "-map", "[out]", "-ac", "1", "-ar", "22050", str(dest)])
+        info = fx.probe(dest)
+    except (fx.MediaError, tts.TTSUnavailable, ValueError) as e:
+        raise HTTPException(422, f"could not synthesize narration: {e}")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    persist_file(dest)
+    t = AudioTrack(project_id=p.id, kind="master_narration", path=str(dest), duration=info["duration"], meta={"filename": "tts_narration.wav", "source": "espeak-ng (local, robotic voice)"})
+    db.add(t)
+    db.commit()
+    E.emit(db, p.id, "audio", f"narration voiced locally with eSpeak NG ({len(rows)} segments, {info['duration']:.1f}s); it is a robotic voice, upload a recording for a better one")
+    return {"id": t.id, "duration": info["duration"], "segments": len(rows), "engine": "espeak-ng"}
+
+
 @router.put("/projects/{pid}/narration")
 def set_narration(pid: str, body: dict[str, Any], user: User = Depends(A.current_user), db: Session = Depends(A.get_db)):
     p = project_of(db, user, pid)
