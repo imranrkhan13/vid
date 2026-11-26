@@ -42,3 +42,22 @@ def test_replace_same_file_does_not_double_count(monkeypatch):
     monkeypatch.setenv("VGOH_DB_BLOB_USER_BUDGET", "1000")
     f = _file("usr_e", "a.mp4", 900)
     L.persist_file(f); L.persist_file(f)
+
+
+def test_purge_tree_removes_only_that_project_and_frees_budget(monkeypatch):
+    monkeypatch.setenv("VGOH_DB_BLOB_USER_BUDGET", "1000")
+    a = L.project_dir("usr_e", "prj_one") / "a.mp4"; a.write_bytes(b"x" * 500)
+    b = L.project_dir("usr_e", "prj_two") / "b.mp4"; b.write_bytes(b"x" * 300)
+    o = L.project_dir("usr_f", "prj_one") / "a.mp4"; o.write_bytes(b"x" * 400)   # other tenant, same project id
+    for f in (a, b, o):
+        L.persist_file(f)
+    assert L.headroom("usr_e") == 200
+    assert L.purge_tree(L.project_dir("usr_e", "prj_one")) == 1
+    assert L.headroom("usr_e") == 700            # budget freed
+    db = new_session()
+    try:
+        assert db.get(MediaBlob, str(a.resolve())) is None
+        assert db.get(MediaBlob, str(b.resolve())) is not None   # sibling project kept
+        assert db.get(MediaBlob, str(o.resolve())) is not None   # other tenant kept
+    finally:
+        db.close()
