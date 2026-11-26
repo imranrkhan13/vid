@@ -38,3 +38,14 @@ def test_catalog_fits_columns():
             col = getattr(G, k).property.columns[0]
             n = getattr(col.type, "length", None)
             assert n is None or len(str(v)) <= n, (r["id"], k, len(str(v)), n)
+
+
+def test_free_trial_flag_rejected_for_unverified_user(monkeypatch):
+    from starlette.testclient import TestClient
+    from app.main import app
+    monkeypatch.delenv("VGOH_FREE_TRIAL_VERIFIED_EMAILS", raising=False)
+    with TestClient(app) as cl:
+        r = cl.post("/api/v1/auth/register", json={"email": "ft@example.com", "password": "pw-123456-abc", "name": "t"}, headers={"X-VGOH": "1"})
+        assert r.status_code in (200, 201), r.text
+        r = cl.post("/api/v1/providers/replicate/connect", json={"label": "x", "secret": "tok-123456789012", "balance": 3, "config": {"free_trial_only": True}}, headers={"X-VGOH": "1"})
+        assert r.status_code == 422 and "unverified" in r.text
