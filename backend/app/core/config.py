@@ -25,6 +25,8 @@ class Settings:
         if url:
             if url.startswith("postgres://"):
                 url = "postgresql://" + url[len("postgres://"):]
+            if url.startswith("postgresql://"):  # pin the driver we ship (psycopg2); SQLAlchemy's default may differ by version
+                url = "postgresql+psycopg2://" + url[len("postgresql://"):]
             return url
         return f"sqlite:///{self.data_dir / 'vgoh.sqlite'}"
 
