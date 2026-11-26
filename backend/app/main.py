@@ -33,6 +33,42 @@ if settings.cors_origins:
     app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 
+import logging
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from app.providers.base import scrub
+
+
+_orig_factory = logging.getLogRecordFactory()
+
+
+def _scrubbing_factory(*a, **k):
+    """No registered credential reaches any log line, even from an uncaught exception (applies to every logger and handler)."""
+    rec = _orig_factory(*a, **k)
+    try:
+        rec.msg = scrub(rec.getMessage()); rec.args = ()
+        if rec.exc_info:
+            rec.exc_text = scrub(logging.Formatter().formatException(rec.exc_info)); rec.exc_info = None
+    except Exception:  # noqa: BLE001
+        pass
+    return rec
+
+
+logging.setLogRecordFactory(_scrubbing_factory)
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _http_exc(request: Request, exc: StarletteHTTPException):
+    d = exc.detail
+    return JSONResponse({"detail": scrub(d) if isinstance(d, str) else d}, status_code=exc.status_code, headers=getattr(exc, "headers", None))
+
+
+@app.exception_handler(Exception)
+async def _any_exc(request: Request, exc: Exception):
+    logging.getLogger("vgoh").error("unhandled %s on %s %s", type(exc).__name__, request.method, request.url.path)   # class only, never the message
+    return JSONResponse({"detail": "internal error"}, status_code=500)
+
+
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
     resp = await call_next(request)
