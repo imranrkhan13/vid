@@ -9,3 +9,4 @@ numpy
 opencv-python-headless>=4.9
 pillow>=10
 alembic>=1.13
+espeakng-loader>=0.2.4
