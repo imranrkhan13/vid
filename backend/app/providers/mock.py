@@ -141,8 +141,10 @@ class MockProvider(VideoProvider):
         if rw * request.height != request.width * rh:  # keep aspect ratio
             rh = int(round(rw * request.height / request.width))
         rw, rh = rw - rw % 2, rh - rh % 2
-        if settings.mock_fast:
-            rw, rh = max(2, rw // 3 - (rw // 3) % 2), max(2, rh // 3 - (rh // 3) % 2)
+        import os
+        dv = 3 if settings.mock_fast else int(os.environ.get("VGOH_MOCK_DOWNSCALE", "1"))  # CPU-starved hosts render mock clips smaller; the clip is labeled MOCK and upscaled at compose
+        if dv > 1:
+            rw, rh = max(2, rw // dv - (rw // dv) % 2), max(2, rh // dv - (rh // dv) % 2)
         style = h.get("style", {})
         render_req = {
             "latency_s": self.v["latency_s"] * (0.2 if settings.mock_fast else 1), "render_width": rw, "render_height": rh, "fps": request.fps,
