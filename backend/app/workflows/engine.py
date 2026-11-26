@@ -6,6 +6,7 @@ on restart `recover()` reconciles by idempotency key and the engine continues fr
 One scene is in flight per project because each scene continues from the previous accepted ending frame."""
 from __future__ import annotations
 import asyncio
+import os
 import json
 import time
 from datetime import datetime, timedelta, timezone
@@ -27,7 +28,7 @@ from app.providers.base import GenerationRequest, PROVIDER_LEVEL_ERRORS, Provide
 from app.providers.registry import build_provider, context_for
 from app.quality.qa import evaluate_clip
 from app.routing.router import select_provider
-from app.storage.local import project_dir, persist_file, restore_file
+from app.storage.local import project_dir, persist_file, restore_file, headroom, StorageBudgetError
 
 PROJECT_ACTIVE = {"READY", "SELECTING_PROVIDER", "GENERATING", "DOWNLOADING", "VALIDATING", "RETRYING", "SWITCHING_PROVIDER",
                   "WAITING_FOR_CREDITS", "WAITING_FOR_PROVIDER", "MANUAL_ACTION_REQUIRED", "COMPOSING", "FINAL_VALIDATION"}
@@ -414,8 +415,15 @@ async def accept_artifact(db: Session, p: VideoProject, s: VideoScene, job: Gene
     last = await asyncio.to_thread(fx.extract_frame, art.path, d / f"{s.idx + 1:02d}_{art.id}_last.png", "last")
     meta = dict(art.meta or {})
     meta.update(first_frame=str(first), last_frame=str(last))
-    for _f in (art.path, first, last):
-        await asyncio.to_thread(persist_file, _f)
+    try:
+        for _f in (art.path, first, last):
+            await asyncio.to_thread(persist_file, _f)
+    except StorageBudgetError:
+        art.status = "candidate"
+        db.commit()
+        set_project(db, p, "PAUSED", "STORAGE LIMIT: this clip was generated but cannot be stored durably, so it is not accepted. Delete old projects, then resume.")
+        emit(db, p.id, "storage_limit", f"scene {s.idx + 1}: storage budget reached; clip kept as a candidate, not accepted", None, s.id)
+        return
     # ending positions reported by the (mock) provider drive the next scene's start; real providers have none
     if job and job.provider_id.startswith("mock"):
         try:
@@ -476,6 +484,11 @@ async def advance(project_id: str):
         if cur.status in ("MANUAL_ACTION_REQUIRED", "REVIEW"):
             return
         if not _due(cur):
+            return
+        room = headroom(p.user_id)
+        if room is not None and room < int(os.environ.get("VGOH_STORAGE_RESERVE", str(12 * 1024 * 1024))):
+            set_project(db, p, "PAUSED", "STORAGE LIMIT: not enough durable storage reserved for the next clip. Accepted clips are kept. Delete old projects, then resume.")
+            emit(db, p.id, "storage_limit", "paused before generation: storage reserve unavailable", None, cur.id)
             return
         await start_generation(db, p, cur)
     finally:
