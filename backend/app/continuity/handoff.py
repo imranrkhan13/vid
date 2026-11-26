@@ -66,6 +66,9 @@ def reference_images(pkg: dict[str, Any]) -> list[str]:
     out = []
     for c in pkg.get("characters", []):
         out += [r["path"] for r in c.get("references", [])]
+    from app.storage.local import restore_file
+    for _p in out:
+        restore_file(_p)
     return out
 
 
