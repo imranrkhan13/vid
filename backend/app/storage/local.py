@@ -33,6 +33,33 @@ def _durable() -> bool:
     return os.environ.get("VGOH_DB_BLOBS", "").lower() in ("1", "true", "yes")
 
 
+class StorageBudgetError(Exception):
+    """The database media budget would be exceeded. Callers must refuse or pause, never report durable success."""
+
+
+def _budgets():
+    import os
+    return (int(os.environ.get("VGOH_DB_BLOB_BUDGET", str(300 * 1024 * 1024))), int(os.environ.get("VGOH_DB_BLOB_USER_BUDGET", str(60 * 1024 * 1024))))
+
+
+def headroom(user_id: str) -> int | None:
+    """Bytes the user may still mirror, or None when durable storage is off (local disk is then the store)."""
+    if not _durable():
+        return None
+    from sqlalchemy import func
+    from app.database.models import MediaBlob
+    from app.database.session import new_session
+    total, per_user = _budgets()
+    prefix = str(settings.media_dir.resolve()) + "/" + safe_name(user_id) + "/"
+    db = new_session()
+    try:
+        all_used = db.query(func.coalesce(func.sum(MediaBlob.size), 0)).scalar() or 0
+        mine = db.query(func.coalesce(func.sum(MediaBlob.size), 0)).filter(MediaBlob.path.like(prefix + "%")).scalar() or 0
+        return max(0, min(total - all_used, per_user - mine))
+    finally:
+        db.close()
+
+
 def persist_file(path) -> None:
     """Copy a media file into the database when VGOH_DB_BLOBS=1 (needed on hosts with an ephemeral disk)."""
     if not path or not _durable():
@@ -47,6 +74,16 @@ def persist_file(path) -> None:
     try:
         data = p.read_bytes()
         row = db.get(MediaBlob, rp)
+        total_budget, user_budget = _budgets()
+        prefix = str(settings.media_dir.resolve()) + "/"
+        rel = rp[len(prefix):] if rp.startswith(prefix) else ""
+        uid = rel.split("/", 1)[0]
+        from sqlalchemy import func
+        old = row.size if row is not None else 0
+        used_all = db.query(func.coalesce(func.sum(MediaBlob.size), 0)).scalar() or 0
+        used_user = (db.query(func.coalesce(func.sum(MediaBlob.size), 0)).filter(MediaBlob.path.like(prefix + uid + "/%")).scalar() or 0) if uid else 0
+        if used_all - old + len(data) > total_budget or used_user - old + len(data) > user_budget:
+            raise StorageBudgetError("storage budget reached for durable media")
         if row is None:
             db.add(MediaBlob(path=rp, size=len(data), data=data))
         else:
