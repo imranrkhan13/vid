@@ -111,6 +111,13 @@ def test_previous_frame_switches_to_image_to_video(tmp_path):
     assert seen["uploaded"] and d["fn_index"] == 5 and d["data"][6] == "image-to-video" and d["data"][2]["path"] == "/tmp/gradio/u/f.png"
 
 
-def test_zero_second_retry_hint_gets_a_floor():
+def test_zero_second_retry_hint_means_unknown_not_invented():
     e = H.HFSpaceLTXProvider._error_from_text("You have exceeded your ZeroGPU quota (120s requested vs. -60s left). Try again in 0:00:00.")
-    assert e.code == "CREDITS_EXHAUSTED" and e.retry_after == 900.0 and e.reset_at
+    assert e.code == "CREDITS_EXHAUSTED" and e.retry_after is None and e.reset_at is None and "unknown" in e.message
+
+
+def test_connect_requires_run_budget_and_uses_runs_unit(app_client, env):
+    from conftest import signup
+    cl = app_client(); signup(cl)
+    r = cl.post("/api/v1/providers/hf_space_ltx/connect", json={"label": "x", "config": {}})
+    assert r.status_code == 422 and "run budget" in r.text
