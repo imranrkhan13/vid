@@ -838,6 +838,8 @@ async def connect(provider_id: str, body: Connect, req: Request, user: User = De
             raise HTTPException(422, "free-trial mode is unverified for this account. Connect without it: the pool is treated as paid and stays blocked unless you approve paid spend.")
     if provider_id == "replicate" and body.config.get("free_trial_only") and (body.balance is None or body.balance <= 0):
         raise HTTPException(422, "free-trial mode needs a run budget (number of free runs you saw available); the provider does not report it")
+    if provider_id == "hf_space_ltx" and (body.balance is None or body.balance <= 0):
+        raise HTTPException(422, "enter a run budget (how many free clips you allow); the Space does not report its real free allowance")
     if provider_id == "llm_openai_compat":
         from app.providers.custom_http import validate_base_url
         try:
@@ -870,7 +872,7 @@ async def connect(provider_id: str, body: Connect, req: Request, user: User = De
         src, avail = q.source, q.available
         if avail is None and body.balance is not None:
             src, avail = "user_entered", body.balance
-        db.add(QuotaPool(user_id=user.id, credential_id=cred.id, provider_id=provider_id, unit=q.unit if q.source != "unknown" else ("runs" if (provider_id == "replicate" and body.config.get("free_trial_only")) else body.unit), balance_source=src, available=avail,
+        db.add(QuotaPool(user_id=user.id, credential_id=cred.id, provider_id=provider_id, unit=q.unit if q.source != "unknown" else ("runs" if (provider_id == "hf_space_ltx" or (provider_id == "replicate" and body.config.get("free_trial_only"))) else body.unit), balance_source=src, available=avail,
                          is_paid=bool(body.is_paid or provider_id == "pollinations" or (provider_id == "replicate" and not body.config.get("free_trial_only")) or (provider_id == "custom_http" and body.config.get("paid", True))), confidence="high" if src == "verified_api" else "low", reset_at=q.reset_at))
         db.commit()
     for p in db.query(VideoProject).filter(VideoProject.user_id == user.id, VideoProject.status.in_(["WAITING_FOR_CREDITS", "WAITING_FOR_PROVIDER"])).all():
