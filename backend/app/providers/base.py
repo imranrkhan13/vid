@@ -18,9 +18,28 @@ PROVIDER_LEVEL_ERRORS = {"QUOTA_EXHAUSTED", "CREDITS_EXHAUSTED", "AUTHENTICATION
                          "MODEL_UNAVAILABLE", "UNSUPPORTED_REQUEST", "RATE_LIMITED"}
 
 
+_SECRETS: set[str] = set()
+
+
+def register_secret(value: str | None) -> None:
+    """Remember a credential so it can be scrubbed from any error text (a remote service may echo it back)."""
+    if value and len(value) >= 8:
+        if len(_SECRETS) > 2000:
+            _SECRETS.clear()
+        _SECRETS.add(value)
+
+
+def scrub(text: str) -> str:
+    for sec in _SECRETS:
+        if sec in text:
+            text = text.replace(sec, "[redacted]")
+    return text
+
+
 class ProviderError(Exception):
     def __init__(self, code: str, message: str = "", retry_after: float | None = None, reset_at: str | None = None):
         assert code in ERROR_CODES, code
+        message = scrub(message or "")
         super().__init__(f"{code}: {message}")
         self.code, self.message, self.retry_after, self.reset_at = code, message, retry_after, reset_at
 
