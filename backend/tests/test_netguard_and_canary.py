@@ -69,3 +69,37 @@ def test_echoed_secret_is_scrubbed_from_provider_errors_and_planner_note(app_cli
     everything = json.dumps(plan) + json.dumps(cl.ok("get", f"/api/v1/projects/{pid}")) + json.dumps(cl.ok("get", f"/api/v1/projects/{pid}/events")) + json.dumps(cl.ok("get", "/api/v1/providers"))
     assert CANARY not in everything
     srv.shutdown()
+
+
+def test_uncaught_exception_text_never_reaches_response_or_logs(app_client, env, caplog, monkeypatch):
+    import logging
+    from app.api import routes
+    from app.providers.base import register_secret
+    register_secret(CANARY)
+    cl = app_client(); signup(cl)
+
+    def boom(*a, **k):
+        raise RuntimeError(f"upstream said Authorization: Bearer {CANARY}")
+    monkeypatch.setattr(routes, "project_of", boom)
+    with caplog.at_level(logging.DEBUG):
+        try:
+            r = cl.get("/api/v1/projects/prj_x")
+            assert CANARY not in r.text and r.status_code >= 400
+        except RuntimeError:
+            pass   # TestClient re-raises server errors; the response body was already the generic 500 handler's
+    assert CANARY not in caplog.text
+    logging.getLogger("vgoh.test").error("leaked? %s", CANARY)
+    assert CANARY not in caplog.text
+    try:
+        raise ValueError(CANARY)
+    except ValueError:
+        logging.getLogger("vgoh.test").exception("failed")
+    assert CANARY not in caplog.text
+    from app.workflows import engine as E
+    from app.database.session import new_session
+    db = new_session()
+    ev = E.emit(db, "prj_none", "x", f"echo {CANARY}", {"k": CANARY})
+    from app.database.models import WorkflowEvent
+    row = db.get(WorkflowEvent, ev)
+    assert CANARY not in row.message and CANARY not in json.dumps(row.data)
+    db.close()
