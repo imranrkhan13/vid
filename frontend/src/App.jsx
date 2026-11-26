@@ -175,7 +175,7 @@ function Characters() {
 }
 
 function Coverage() {
-  return <><h1>About</h1><div className="card"><p>VGOH coordinates several AI video providers. It plans the storyboard, picks a provider per scene, tracks each connection's credits, validates every clip, and when a provider runs out it continues on the next one with the style, characters, last frame and narration carried over.</p>
+  return <><h1>About</h1><div className="card"><p className="mut">Free narration voice: eSpeak NG (GPL-3.0), robotic, runs on the server. See THIRD_PARTY_NOTICES.md in the repository for the license and source.</p><p>VGOH coordinates several AI video providers. It plans the storyboard, picks a provider per scene, tracks each connection's credits, validates every clip, and when a provider runs out it continues on the next one with the style, characters, last frame and narration carried over.</p>
     <p className="mut">Current status is documented in the project repository under docs/. Mock providers exist only to test the workflow and are always labeled MOCK. No generated result in this app is faked.</p></div></>
 }
 
