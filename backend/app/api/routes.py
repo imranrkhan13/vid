@@ -785,6 +785,13 @@ async def connect(provider_id: str, body: Connect, req: Request, user: User = De
         raise HTTPException(404 if g is None else 422, "provider not available for connection" if g else "unknown provider")
     if db.query(ProviderCredential).filter_by(user_id=user.id, provider_id=provider_id, label=body.label).first():
         raise HTTPException(409, "a connection with this label exists; delete it first or use another label")
+    if provider_id == "replicate" and body.config.get("free_trial_only"):
+        # A user-typed flag cannot make a possibly paid pool free. Only operator-verified accounts (the owner, whose Replicate
+        # account has no payment method on file) may use it; everyone else connects it as a paid pool that stays blocked.
+        import os
+        allowed = {e.strip().lower() for e in os.environ.get("VGOH_FREE_TRIAL_VERIFIED_EMAILS", "").split(",") if e.strip()}
+        if (user.email or "").lower() not in allowed:
+            raise HTTPException(422, "free-trial mode is unverified for this account. Connect without it: the pool is treated as paid and stays blocked unless you approve paid spend.")
     if provider_id == "replicate" and body.config.get("free_trial_only") and (body.balance is None or body.balance <= 0):
         raise HTTPException(422, "free-trial mode needs a run budget (number of free runs you saw available); the provider does not report it")
     cred = ProviderCredential(user_id=user.id, provider_id=provider_id, label=body.label, config=body.config)
