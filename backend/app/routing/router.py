@@ -90,6 +90,8 @@ async def select_provider(db: Session, project: VideoProject, scene: VideoScene,
     w = weights_for(project)
     for cred in creds:
         pid = cred.provider_id
+        if pid == "llm_openai_compat":      # planner credential, never a video generator
+            continue
         why = None
         if cred.id in exclude or pid in (scene.avoid_providers or []):
             rejected.append({"provider": pid, "credential": cred.label, "reason": "excluded for this scene after an earlier failure or handoff"})
