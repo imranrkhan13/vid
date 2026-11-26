@@ -791,7 +791,7 @@ async def connect(provider_id: str, body: Connect, req: Request, user: User = De
         if avail is None and body.balance is not None:
             src, avail = "user_entered", body.balance
         db.add(QuotaPool(user_id=user.id, credential_id=cred.id, provider_id=provider_id, unit=q.unit if q.source != "unknown" else body.unit, balance_source=src, available=avail,
-                         is_paid=bool(body.is_paid or (provider_id == "custom_http" and body.config.get("paid", True))), confidence="high" if src == "verified_api" else "low", reset_at=q.reset_at))
+                         is_paid=bool(body.is_paid or provider_id == "pollinations" or (provider_id == "custom_http" and body.config.get("paid", True))), confidence="high" if src == "verified_api" else "low", reset_at=q.reset_at))
         db.commit()
     for p in db.query(VideoProject).filter(VideoProject.user_id == user.id, VideoProject.status.in_(["WAITING_FOR_CREDITS", "WAITING_FOR_PROVIDER"])).all():
         for s in db.query(VideoScene).filter_by(project_id=p.id).all():
