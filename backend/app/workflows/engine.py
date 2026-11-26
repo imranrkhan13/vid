@@ -42,7 +42,8 @@ def iso(dt: datetime | None = None) -> str:
 
 
 def emit(db: Session, project_id: str, kind: str, message: str, data: dict | None = None, scene_id: str | None = None) -> int:
-    ev = WorkflowEvent(project_id=project_id, scene_id=scene_id, kind=kind, message=message, data=data)
+    from app.providers.base import scrub
+    ev = WorkflowEvent(project_id=project_id, scene_id=scene_id, kind=kind, message=scrub(message or ""), data=json.loads(scrub(json.dumps(data))) if data else data)
     db.add(ev)
     db.commit()
     return ev.id
@@ -609,7 +610,7 @@ async def process_export(export_id: str):
     except Exception as e:  # noqa: BLE001
         db.rollback()
         ex = db.get(ExportJob, export_id)
-        ex.status, ex.error = "FAILED", str(e)[:500]
+        ex.status, ex.error = "FAILED", __import__("app.providers.base", fromlist=["scrub"]).scrub(str(e))[:500]
         p = db.get(VideoProject, ex.project_id)
         if (ex.options or {}).get("auto"):
             set_project(db, p, "FAILED", f"composition failed: {str(e)[:200]}")
