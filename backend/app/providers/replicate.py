@@ -18,6 +18,15 @@ BASE = "https://api.replicate.com/v1"
 DEFAULT_MODEL = "minimax/video-01"
 
 
+
+def _is_delivery_url(url: str) -> bool:
+    """Only https URLs whose real hostname is replicate.delivery or a subdomain of it (a bare suffix match would accept evilreplicate.delivery)."""
+    from urllib.parse import urlparse
+    u = urlparse(url)
+    h = (u.hostname or "").lower()
+    return u.scheme == "https" and (h == "replicate.delivery" or h.endswith(".replicate.delivery")) and not u.username and u.port in (None, 443)
+
+
 class ReplicateProvider(VideoProvider):
     category = "native_api"
 
@@ -118,7 +127,7 @@ class ReplicateProvider(VideoProvider):
             j = await self._get(job_id)
             out = j.get("output")
             url = out[0] if isinstance(out, list) and out else out
-            if not isinstance(url, str) or not url.startswith("https://") or not url.split("/")[2].endswith("replicate.delivery"):
+            if not isinstance(url, str) or not _is_delivery_url(url):
                 raise ProviderError("DOWNLOAD_FAILED", "no downloadable output URL from the provider")
             async with httpx.AsyncClient(timeout=120, follow_redirects=False) as cl:
                 async with cl.stream("GET", url) as r:
