@@ -26,6 +26,8 @@ CORE_PROVIDERS = [
 
 
 def build_provider(provider_id: str, ctx: ProviderContext) -> VideoProvider:
+    from .base import register_secret
+    register_secret(getattr(ctx, "secret", None))
     if provider_id in VARIANTS:
         return MockProvider(ctx, provider_id)
     if provider_id == "manual":
