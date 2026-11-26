@@ -34,6 +34,37 @@ def compose(*, clips: list[dict[str, Any]], width: int, height: int, fps: int, o
             f += f",fade=t=in:st=0:d={fd:.3f},fade=t=out:st={c['duration'] - fd:.3f}:d={fd:.3f}"
         fparts.append(f + f"[v{i}]")
         total_frames += n
+    import os
+    preset = os.environ.get("VGOH_X264_PRESET", "medium")
+    threads = os.environ.get("VGOH_FFMPEG_THREADS")
+    lowmem = os.environ.get("VGOH_COMPOSE_SEGMENTED", "0") == "1" and not (burn_subtitles and srt_path and srt_path.exists())
+    if lowmem:
+        # Memory-lean path: encode each scene to a normalized segment on its own, then stream-copy concat (+ audio mux).
+        segs = []
+        for i, c in enumerate(clips):
+            sp = workdir / f"seg_{i}.mp4"
+            fc = fparts[i].replace(f"[{i}:v]", "[0:v]", 1).replace(f"[v{i}]", "[vo]")
+            cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", str(c["path"]), "-filter_complex", fc, "-map", "[vo]", "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                   "-preset", preset, "-crf", "18", "-r", str(fps), "-frames:v", str(max(1, int(round(c["duration"] * fps))))]
+            if threads:
+                cmd += ["-threads", threads, "-filter_threads", threads]
+            fx.run(cmd + [str(sp)], timeout=3600)
+            segs.append(sp)
+        lst = workdir / "concat.txt"
+        lst.write_text("".join(f"file '{sp}'\n" for sp in segs))
+        total_dur = total_frames / fps
+        cmd = ["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", str(lst)]
+        if audio_path:
+            cmd += ["-i", str(audio_path), "-filter_complex",
+                    f"[1:a]aresample=48000,loudnorm=I=-16:TP=-1.5:LRA=11,afade=t=in:st=0:d=0.3,apad,atrim=0:{total_dur:.4f},afade=t=out:st={max(0.0, total_dur - 0.5):.4f}:d=0.5[aout]",
+                    "-map", "0:v", "-map", "[aout]", "-c:a", "aac", "-b:a", "160k"]
+        else:
+            cmd += ["-map", "0:v"]
+        cmd += ["-c:v", "copy", "-frames:v", str(total_frames), "-movflags", "+faststart", str(out_path)]
+        fx.run(cmd, timeout=3600)
+        for sp in segs:
+            sp.unlink(missing_ok=True)
+        return {"expected_frames": total_frames, "expected_duration": total_dur, "notes": notes + ["composed segment-by-segment (low-memory mode)"]}
     concat = "".join(f"[v{i}]" for i in range(len(clips))) + f"concat=n={len(clips)}:v=1:a=0[vc]"
     last = "vc"
     if burn_subtitles and srt_path and srt_path.exists():
@@ -54,7 +85,7 @@ def compose(*, clips: list[dict[str, Any]], width: int, height: int, fps: int, o
     cmd += ["-filter_complex_script", str(script), "-map", f"[{last}]"]
     if audio_path:
         cmd += ["-map", "[aout]", "-c:a", "aac", "-b:a", "160k"]
-    cmd += ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "medium", "-crf", "18", "-r", str(fps), "-frames:v", str(total_frames),
+    cmd += ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", preset, "-crf", "18", "-r", str(fps), "-frames:v", str(total_frames),
             "-movflags", "+faststart", str(out_path)]
     fx.run(cmd, timeout=3600)
     return {"expected_frames": total_frames, "expected_duration": total_dur, "notes": notes}
