@@ -40,7 +40,7 @@ def test_catalog_fits_columns():
             assert n is None or len(str(v)) <= n, (r["id"], k, len(str(v)), n)
 
 
-def test_free_trial_flag_rejected_for_unverified_user(monkeypatch):
+def test_free_trial_flag_rejected_for_unverified_user(env, monkeypatch):
     from starlette.testclient import TestClient
     from app.main import app
     monkeypatch.setenv("VGOH_FREE_TRIAL_VERIFIED_USER_IDS", "usr_someone_else")
