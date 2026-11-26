@@ -4,7 +4,7 @@ CATALOG: list[dict] = [
     dict(id="pollinations", name="Pollinations (gen.pollinations.ai)", category="native_api", implemented=True, verification="adapter-untested-live",
          host_family="pollinations", docs_url="https://gen.pollinations.ai/api/docs/open-api/generate-schema",
          notes="Async media jobs with per-second pollen pricing. On 2026-11-27 every video model in its public listing was flagged paid_only, so the pool is treated as paid and blocked unless paid spend is approved for the project."),
-    dict(id="llm_openai_compat", name="Planner LLM (OpenAI-compatible endpoint)", category="llm", implemented=False, verification="contract-tested",
+    dict(id="llm_openai_compat", name="Planner LLM (OpenAI-compatible endpoint)", category="llm", implemented=True, verification="contract-tested",
          host_family="llm", docs_url="",
          notes="Optional storyboard planner. Bring any OpenAI-compatible /chat/completions endpoint and key (config base_url, model). Not a video generator. Falls back to the built-in template planner on any failure."),
     dict(id="replicate", name="Replicate (minimax/video-01)", category="native_api", implemented=True, verification="web-ui-verified",
