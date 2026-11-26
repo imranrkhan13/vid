@@ -126,7 +126,7 @@ function SceneCard({ s, p, act }) {
   return <div className="card scene"><div className="row"><b className="sp" title={s.title}>{s.idx + 1}. {short}</b><Pill s={s.status} /></div>
     <div className="mut">{fmt(s.duration)}s{acc ? ' · ' + acc.provider : ''}{mock ? ' · MOCK (simulated, not AI)' : ''}{s.retries ? ' · retries ' + s.retries : ''}</div>
     {acc && <video controls preload="metadata" playsInline poster={'/api/v1/media/' + acc.id + '?frame=first'} src={'/api/v1/media/' + acc.id} style={{ marginTop: 8 }} />}
-    {acc?.quality && <div className="mut" style={{ marginTop: 4 }}>Heuristic check (OpenCV sharpness/motion/continuity, {mock ? 'demo only on simulated clips' : 'automated, not a human review'}): {acc.quality.overall}. No character-identity match was tested.</div>}
+    {acc?.quality && <div className="mut" style={{ marginTop: 4 }} title="OpenCV sharpness, motion, resolution and continuity heuristics. Not a human review and no character-identity match was tested.">Heuristic QA {acc.quality.overall}{mock ? ' (mock demo)' : ''} · no identity check</div>}
     {s.last_error && <div className="err">{s.last_error}</div>}
     {!edit ? <details><summary className="mut">Prompt details</summary><p style={{ fontSize: 13 }}>{s.prompt}</p></details> : <><textarea value={pr} onChange={(e) => setPr(e.target.value)} /><label>Duration</label><input type="number" value={dur} onChange={(e) => setDur(Number(e.target.value))} /></>}
     <div className="row">{!edit ? <button className="sec" onClick={() => setEdit(true)}>Edit</button> : <button onClick={() => act(async () => { await patch('/scenes/' + s.id, { prompt: pr, duration: dur }); setEdit(false) })}>Save</button>}
