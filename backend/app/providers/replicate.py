@@ -53,7 +53,7 @@ class ReplicateProvider(VideoProvider):
         return {"label": f"Replicate / {self.model}", "modes": ["text_to_video", "image_to_video"], "min_duration": 6, "max_duration": 6,
                 "durations": [6], "aspect_ratios": ["16:9"], "max_width": 1280, "max_height": 720, "first_frame": False, "multi_reference": False,
                 "character_reference": False, "audio": False, "watermark": None, "commercial_ok": None,
-                "cost_per_second": 0.0 if free else 0.5 / 6, "unit": "usd", "paid": not free, "est_latency_s": 180, "speed_score": 0.3, "concurrency": 1,
+                "cost_per_second": (1.0 / 6) if free else 0.5 / 6, "unit": "runs" if free else "usd", "paid": not free, "est_latency_s": 180, "speed_score": 0.3, "concurrency": 1,
                 "source": "owner-verified 6s free run on 2026-11-27; list price $0.50/run; free allowance size unknown"}
 
     async def check_health(self):
@@ -68,11 +68,11 @@ class ReplicateProvider(VideoProvider):
             return {"ok": False, "detail": str(e)[:200]}
 
     async def get_quota(self) -> QuotaInfo:
-        return QuotaInfo(None, "usd", "unknown", detail="Replicate does not expose the free-run allowance; exhaustion is detected from HTTP 402")
+        return QuotaInfo(None, "runs" if self.ctx.config.get("free_trial_only") else "usd", "unknown", detail="Replicate does not expose the free-run allowance; exhaustion is detected from HTTP 402")
 
     async def estimate_cost(self, request: GenerationRequest) -> CostEstimate:
         free = bool(self.ctx.config.get("free_trial_only", False))
-        return CostEstimate(0.0 if free else 0.5, "usd", not free, "medium", "list price $0.50 per run; free-trial allowance size unknown")
+        return CostEstimate(1.0 if free else 0.5, "runs" if free else "usd", not free, "medium", "free-trial mode counts 1 run per clip against a run budget the user entered; the real allowance is unknown and 402 stops it. Otherwise list price $0.50")
 
     async def submit_generation(self, request: GenerationRequest) -> str:
         body = {"input": {"prompt": request.prompt[:2000], "prompt_optimizer": True}}
