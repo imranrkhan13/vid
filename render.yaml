@@ -18,6 +18,8 @@ services:
         value: "1"
       - key: VGOH_DB_BLOBS
         value: "1"
+      - key: VGOH_MOCK_DOWNSCALE
+        value: "3"
       - key: VGOH_COOKIE_SECURE
         value: "1"
 databases:
