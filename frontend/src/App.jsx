@@ -91,7 +91,7 @@ function Project({ pid }) {
   const colors = { ACCEPTED: '#1f6b52', GENERATING: '#14617a', FAILED: '#6b2a2a', RETRYING: '#6b5513' }
   return <>
     <div className="row"><h1 className="sp">{p.title}</h1><Pill s={p.status} /></div>
-    <p className="mut">{p.aspect_ratio} · {p.resolution} · {p.fps}fps · {p.target_duration}s · {fmt(p.accepted_duration)}s accepted</p>
+    <p className="mut">{p.aspect_ratio} · {p.resolution || p.canonical_state?.resolution || '720p'} · {p.fps}fps · {p.target_duration}s · {fmt(p.accepted_duration)}s accepted</p>
     <div className="row" style={{ marginBottom: 12 }}>
       {p.status === 'STORYBOARD_READY' && <button onClick={() => act(() => post(`/projects/${pid}/approve`))}>Approve storyboard</button>}
       {['STORYBOARD_READY', 'READY', 'APPROVED'].includes(p.status) && <button onClick={() => act(() => post(`/projects/${pid}/generate`))}>Generate</button>}
@@ -121,12 +121,14 @@ function Project({ pid }) {
 function SceneCard({ s, p, act }) {
   const [edit, setEdit] = useState(false), [pr, setPr] = useState(s.prompt || ''), [dur, setDur] = useState(s.duration)
   const acc = s.candidates?.find((c) => c.id === s.accepted_artifact_id)
-  return <div className="card"><div className="row"><b className="sp">{s.idx + 1}. {s.title}</b><Pill s={s.status} /></div>
-    <div className="mut">{fmt(s.duration)}s{acc ? ' · ' + acc.provider : ''}{s.retries ? ' · retries ' + s.retries : ''}</div>
-    {acc && <video controls preload="none" src={'/api/v1/media/' + acc.id} style={{ marginTop: 8 }} />}
-    {acc?.quality && <div className="mut" style={{ marginTop: 4 }}>QA overall {acc.quality.overall}</div>}
+  const mock = acc && /^mock/.test(acc.provider || '')
+  const short = (s.title || '').length > 48 ? s.title.slice(0, 46) + '…' : s.title
+  return <div className="card scene"><div className="row"><b className="sp" title={s.title}>{s.idx + 1}. {short}</b><Pill s={s.status} /></div>
+    <div className="mut">{fmt(s.duration)}s{acc ? ' · ' + acc.provider : ''}{mock ? ' · MOCK (simulated, not AI)' : ''}{s.retries ? ' · retries ' + s.retries : ''}</div>
+    {acc && <video controls preload="metadata" playsInline poster={'/api/v1/media/' + acc.id + '?frame=first'} src={'/api/v1/media/' + acc.id} style={{ marginTop: 8 }} />}
+    {acc?.quality && <div className="mut" style={{ marginTop: 4 }}>Heuristic check (OpenCV sharpness/motion/continuity, {mock ? 'demo only on simulated clips' : 'automated, not a human review'}): {acc.quality.overall}. No character-identity match was tested.</div>}
     {s.last_error && <div className="err">{s.last_error}</div>}
-    {!edit ? <p style={{ fontSize: 13 }}>{s.prompt}</p> : <><textarea value={pr} onChange={(e) => setPr(e.target.value)} /><label>Duration</label><input type="number" value={dur} onChange={(e) => setDur(Number(e.target.value))} /></>}
+    {!edit ? <details><summary className="mut">Prompt details</summary><p style={{ fontSize: 13 }}>{s.prompt}</p></details> : <><textarea value={pr} onChange={(e) => setPr(e.target.value)} /><label>Duration</label><input type="number" value={dur} onChange={(e) => setDur(Number(e.target.value))} /></>}
     <div className="row">{!edit ? <button className="sec" onClick={() => setEdit(true)}>Edit</button> : <button onClick={() => act(async () => { await patch('/scenes/' + s.id, { prompt: pr, duration: dur }); setEdit(false) })}>Save</button>}
       <button className="sec" onClick={() => act(() => post(`/scenes/${s.id}/regenerate`))}>Regenerate</button></div></div>
 }
@@ -137,7 +139,7 @@ function Providers() {
   if (st.loading) return <p className="mut">Loading…</p>
   if (st.err) return <div className="err">{st.err.message}</div>
   const { catalog, connections } = st.data
-  const connect = async (e) => { e.preventDefault(); setErr(''); try { await post(`/providers/${sel.id}/connect`, { label: f.label, secret: f.secret || null, balance: f.balance === '' ? null : Number(f.balance), config: sel.is_mock && f.init !== '' && f.init != null ? { initial_credits: Number(f.init) } : {} }); setSel(null); setF({ label: 'default', secret: '', balance: '' }); reload() } catch (x) { setErr(x.message) } }
+  const connect = async (e) => { e.preventDefault(); setErr(''); try { await post(`/providers/${sel.id}/connect`, { label: f.label, secret: f.secret || null, balance: f.balance === '' ? null : Number(f.balance), config: sel.is_mock && f.init !== '' && f.init != null ? { initial_credits: Number(f.init) } : (sel.id === 'replicate' && f.free ? { free_trial_only: true } : {}) }); setSel(null); setF({ label: 'default', secret: '', balance: '' }); reload() } catch (x) { setErr(x.message) } }
   return <><h1>Providers</h1>
     <div className="note">Keys are encrypted on the server and never sent back to the browser. Credits are tracked per connection; a balance is only trusted when the provider reports it, otherwise it is marked as entered by you.</div>
     <h2>Your connections</h2>
@@ -150,6 +152,7 @@ function Providers() {
     {sel && <form className="card" onSubmit={connect}><h3>Connect {sel.name}</h3>
       <label>Label</label><input value={f.label} onChange={(e) => setF({ ...f, label: e.target.value })} />
       <label>API key (stored encrypted, server side)</label><input type="password" autoComplete="off" value={f.secret} onChange={(e) => setF({ ...f, secret: e.target.value })} />
+      {sel.id === 'replicate' && <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" style={{ width: 'auto' }} checked={!!f.free} onChange={(e) => setF({ ...f, free: e.target.checked })} />Use Replicate free-trial runs only (HTTP 402 means the allowance is used up and the next provider takes over)</label>}
       <label>Credit balance, if the provider does not report one (optional)</label><input type="number" step="any" value={f.balance} onChange={(e) => setF({ ...f, balance: e.target.value })} />
       {sel.is_mock && <><label>MOCK provider: simulated credits (testing only, no real video is generated by mock providers)</label><input type="number" step="any" value={f.init ?? ''} onChange={(e) => setF({ ...f, init: e.target.value })} /></>}
       {err && <div className="err">{err}</div>}<div className="row" style={{ marginTop: 12 }}><button>Verify and connect</button><button type="button" className="sec" onClick={() => setSel(null)}>Cancel</button></div></form>}
@@ -186,4 +189,4 @@ export default function App() {
   return <div className="shell"><aside className="side"><div className="brand">VGOH</div><nav className="nav">{nav.map(([p, l]) => <a key={p} href={'#' + p} className={h === p ? 'on' : ''}>{l}</a>)}</nav>
     <div className="mut" style={{ marginTop: 20, fontSize: 12 }}>{user.email}<br /><a href="#" onClick={async (e) => { e.preventDefault(); await post('/auth/logout'); setUser(null) }}>Sign out</a></div></aside>
     <main className="main">{m ? <Project pid={m[1]} key={m[1]} /> : h === '/new' ? <NewProject /> : h === '/providers' ? <Providers /> : h === '/characters' ? <Characters /> : h === '/about' ? <Coverage /> : <Dashboard />}</main></div>
-                                                                                                                              }
+}
