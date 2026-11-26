@@ -70,8 +70,8 @@ class HFSpaceLTXProvider(VideoProvider):
         return ProviderError("GENERATION_FAILED", (msg or "generation failed")[:200])
 
     async def get_capabilities(self) -> dict[str, Any]:
-        return {"label": "Hugging Face Space / LTX-Video distilled (free, shared)", "modes": ["text_to_video"], "min_duration": 1, "max_duration": 8,
-                "aspect_ratios": ["9:16", "16:9"], "max_width": 704, "max_height": 704, "first_frame": False, "multi_reference": False,
+        return {"label": "Hugging Face Space / LTX-Video distilled (free, shared)", "modes": ["text_to_video", "image_to_video"], "min_duration": 1, "max_duration": 8,
+                "aspect_ratios": ["9:16", "16:9"], "max_width": 704, "max_height": 704, "first_frame": True, "multi_reference": False,
                 "character_reference": False, "audio": False, "watermark": None, "commercial_ok": None,
                 "cost_per_second": 0.0, "unit": "runs", "paid": False, "est_latency_s": 30, "speed_score": 0.7, "concurrency": 1,
                 "source": "verified live 2026-11-27 (anonymous calls returned real clips); community Space, no SLA; the free GPU allowance is not readable"}
@@ -99,16 +99,25 @@ class HFSpaceLTXProvider(VideoProvider):
         import uuid
         h, w = _dims(request.width, request.height)
         dur = round(min(8.0, max(1.0, request.duration)), 1)
-        data = [request.prompt[:1500], (request.negative_prompt or "worst quality, inconsistent motion, blurry, jittery, distorted")[:500],
-                None, None, h, w, "text-to-video", dur, 9, 42, True, 1, True]
+        neg = (request.negative_prompt or "worst quality, inconsistent motion, blurry, jittery, distorted")[:500]
         session = uuid.uuid4().hex[:16]
+        frame = Path(request.previous_frame) if request.previous_frame else None
         try:
             async with self._client() as cl:
                 cfg = await cl.get("/config")
                 self._norm_http(cfg)
-                fn = [d["id"] for d in cfg.json().get("dependencies", []) if d.get("api_name") == "text_to_video"]
+                api = "image_to_video" if frame and frame.is_file() else "text_to_video"
+                fn = [d["id"] for d in cfg.json().get("dependencies", []) if d.get("api_name") == api]
                 if not fn:
-                    raise ProviderError("UNSUPPORTED_REQUEST", "the Space's interface changed (no text_to_video endpoint)")
+                    raise ProviderError("UNSUPPORTED_REQUEST", f"the Space's interface changed (no {api} endpoint)")
+                if api == "image_to_video":
+                    # continuity: the previous accepted frame becomes this clip's first frame
+                    up = await cl.post("/gradio_api/upload", files={"files": (frame.name, frame.read_bytes(), "image/png")})
+                    self._norm_http(up)
+                    img = {"path": up.json()[0], "meta": {"_type": "gradio.FileData"}}
+                    data = [request.prompt[:1500], neg, img, None, h, w, "image-to-video", dur, 9, 42, True, 1, True]
+                else:
+                    data = [request.prompt[:1500], neg, None, None, h, w, "text-to-video", dur, 9, 42, True, 1, True]
                 r = await cl.post(JOIN, json={"data": data, "fn_index": fn[0], "session_hash": session})
                 self._norm_http(r)
                 return session
