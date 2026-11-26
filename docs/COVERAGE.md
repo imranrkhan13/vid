@@ -45,3 +45,16 @@ Spec: [SPEC.md](SPEC.md) (the original README, 33 sections). Status key: **Done*
 - **Real third party verified:** Replicate minimax/video-01 produced a 6s clip from the owner's free account in Replicate's web UI. API path through this app: not verified.
 - **Real, not verified live:** Pollinations adapter (needs a funded key; all its video models are flagged paid-only).
 - **Mock only:** acceptance tests, failover, handoff, live smoke on https://vgoh.onrender.com.
+
+## Status update (2026-11-27 03:20 IST)
+
+Real vs mock, kept separate:
+
+- Verified live (real infrastructure): web app on Render free, state in an isolated Neon free Postgres project (schema and rows confirmed in the Neon console), multi-user signup and login, per-user isolation, server-side secret storage.
+- Verified with MOCK providers only (orchestration, not video quality): provider failover and context handoff, credit exhaustion, compose, export, crash recovery (kill -9), storage-budget pause and resume, bounded provider wait.
+- Real AI generation: one real 6s clip was produced by hand in Replicate's web UI (account imranrkhan13, Try-for-Free model minimax/video-01). No API-driven real generation has been run. The Replicate API token has not been usable by the app: vault approval is pending, and API-side free eligibility is unverified.
+- Free-trial mode for Replicate is restricted by server config to operator-verified immutable user IDs. Everyone else connects as a paid pool, which stays blocked until paid spend is approved.
+
+Tests: SQLite and PostgreSQL 16 runs both pass (storage budget, tenant isolation, blob purge on project delete, storage-pause E2E, bounded wait, Replicate stub, security, durable media, acceptance, recovery).
+
+Known gaps: Hugging Face is not implemented (no free route). Pollinations adapter is not live-verified. The free Neon and Render tiers have storage, CPU and cold-start limits. The full 33-section spec is not complete; see the per-section table above.
