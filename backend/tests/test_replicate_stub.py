@@ -26,5 +26,15 @@ def test_submit_status_and_402():
 
 def test_free_flag():
     p = mk(lambda r: httpx.Response(200), free_trial_only=True)
-    assert asyncio.run(p.estimate_cost(REQ)).is_paid is False
+    assert asyncio.run(p.estimate_cost(REQ)).unit == "runs"
     assert asyncio.run(mk(lambda r: httpx.Response(200)).estimate_cost(REQ)).is_paid is True
+
+def test_catalog_fits_columns():
+    from app.database.models import GenerationProvider as G
+    from app.providers.catalog_data import CATALOG
+    from app.providers.registry import CORE_PROVIDERS
+    for r in CORE_PROVIDERS + CATALOG:
+        for k, v in r.items():
+            col = getattr(G, k).property.columns[0]
+            n = getattr(col.type, "length", None)
+            assert n is None or len(str(v)) <= n, (r["id"], k, len(str(v)), n)
