@@ -63,8 +63,9 @@ class HFSpaceLTXProvider(VideoProvider):
             import re
             t = re.search(r"try again in (\d+):(\d+):(\d+)", m)
             wait = int(t.group(1)) * 3600 + int(t.group(2)) * 60 + int(t.group(3)) if t else 0
-            wait = max(wait, 900)      # ZeroGPU recovers on a rolling window and may report 0s; do not hammer the Space
-            return ProviderError("CREDITS_EXHAUSTED", "free ZeroGPU quota used up for this caller (anonymous, or the connected free Hugging Face account)" + (f"; the Space says retry in {wait}s" if wait else ""), retry_after=float(wait), reset_at=(datetime.now(timezone.utc) + timedelta(seconds=wait)).isoformat())
+            # Only a positive time the Space itself reports is used. "0:00:00" or no hint means the reset time is UNKNOWN: no invented value.
+            return ProviderError("CREDITS_EXHAUSTED", "free ZeroGPU quota used up for this caller (anonymous, or the connected free Hugging Face account); reset time unknown" + (f"; the Space says retry in {wait}s" if wait > 0 else ""),
+                                 retry_after=float(wait) if wait > 0 else None, reset_at=(datetime.now(timezone.utc) + timedelta(seconds=wait)).isoformat() if wait > 0 else None)
         if "queue" in m and "full" in m or "too many" in m or "busy" in m:
             return ProviderError("PROVIDER_UNAVAILABLE", "the Space queue is full")
         if "nsfw" in m or "safety" in m or "inappropriate" in m:
