@@ -109,3 +109,8 @@ def test_previous_frame_switches_to_image_to_video(tmp_path):
     asyncio.run(p.submit_generation(replace(REQ, previous_frame=str(frame))))
     d = seen["join"]
     assert seen["uploaded"] and d["fn_index"] == 5 and d["data"][6] == "image-to-video" and d["data"][2]["path"] == "/tmp/gradio/u/f.png"
+
+
+def test_zero_second_retry_hint_gets_a_floor():
+    e = H.HFSpaceLTXProvider._error_from_text("You have exceeded your ZeroGPU quota (120s requested vs. -60s left). Try again in 0:00:00.")
+    assert e.code == "CREDITS_EXHAUSTED" and e.retry_after == 900.0 and e.reset_at
