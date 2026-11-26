@@ -88,3 +88,24 @@ def test_health_detects_changed_interface():
     assert asyncio.run(mk(lambda r: httpx.Response(200, json=ok)).check_health())["ok"] is True
     assert asyncio.run(mk(lambda r: httpx.Response(200, json={"components": []})).check_health())["ok"] is False
     assert asyncio.run(mk(lambda r: httpx.Response(503)).check_health())["ok"] is False
+
+
+def test_previous_frame_switches_to_image_to_video(tmp_path):
+    from dataclasses import replace
+    frame = tmp_path / "f.png"; frame.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 50)
+    seen = {}
+
+    def h(r):
+        if r.url.path == "/config":
+            return httpx.Response(200, json={"dependencies": [{"id": 4, "api_name": "text_to_video"}, {"id": 5, "api_name": "image_to_video"}]})
+        if r.url.path == "/gradio_api/upload":
+            seen["uploaded"] = True
+            return httpx.Response(200, json=["/tmp/gradio/u/f.png"])
+        if r.url.path.endswith("/queue/join"):
+            seen["join"] = json.loads(r.content)
+            return httpx.Response(200, json={"event_id": "e"})
+        return httpx.Response(404)
+    p = mk(h)
+    asyncio.run(p.submit_generation(replace(REQ, previous_frame=str(frame))))
+    d = seen["join"]
+    assert seen["uploaded"] and d["fn_index"] == 5 and d["data"][6] == "image-to-video" and d["data"][2]["path"] == "/tmp/gradio/u/f.png"
