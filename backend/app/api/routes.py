@@ -423,6 +423,7 @@ def resume(pid: str, user: User = Depends(A.current_user), db: Session = Depends
         raise HTTPException(409, "project is not paused")
     for s in db.query(VideoScene).filter_by(project_id=p.id).all():
         s.not_before = None
+    E.emit(db, p.id, "resumed", "resumed by user")
     E.set_project(db, p, "GENERATING", "resumed")
     return ser_project(db, p)
 
