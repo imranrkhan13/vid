@@ -9,4 +9,7 @@ def build_real_provider(provider_id: str, ctx: ProviderContext) -> VideoProvider
     if provider_id == "replicate":
         from .replicate import ReplicateProvider
         return ReplicateProvider(ctx)
+    if provider_id == "hf_space_ltx":
+        from .hf_space_ltx import HFSpaceLTXProvider
+        return HFSpaceLTXProvider(ctx)
     return None
