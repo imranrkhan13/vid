@@ -1,0 +1,33 @@
+{
+  "project_id": "video-project-ede567e1",
+  "resolution": "1080x1920",
+  "aspect_ratio": "9:16",
+  "fps": 30,
+  "total_duration_seconds": 16.0,
+  "clips": [
+    {
+      "scene_id": "video-project-ede567e1-scene-001",
+      "uri": "mock://mock_a/video-project-ede567e1-scene-001/17606fbbd5e72951.mp4",
+      "duration_seconds": 4.0
+    },
+    {
+      "scene_id": "video-project-ede567e1-scene-002",
+      "uri": "mock://mock_a/video-project-ede567e1-scene-002/2c4b06a225afde54.mp4",
+      "duration_seconds": 4.0
+    },
+    {
+      "scene_id": "video-project-ede567e1-scene-003",
+      "uri": "mock://mock_a/video-project-ede567e1-scene-003/3a96702739a66f2a.mp4",
+      "duration_seconds": 4.0
+    },
+    {
+      "scene_id": "video-project-ede567e1-scene-004",
+      "uri": "mock://mock_a/video-project-ede567e1-scene-004/8cd2198f84b2b4b9.mp4",
+      "duration_seconds": 4.0
+    }
+  ],
+  "audio": null,
+  "grade": "none",
+  "ffmpeg_available": false,
+  "note": "ffmpeg not installed; composition skipped (manifest only)"
+}

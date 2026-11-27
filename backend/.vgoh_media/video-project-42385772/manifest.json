@@ -1,0 +1,23 @@
+{
+  "project_id": "video-project-42385772",
+  "resolution": "1080x1920",
+  "aspect_ratio": "9:16",
+  "fps": 30,
+  "total_duration_seconds": 8.0,
+  "clips": [
+    {
+      "scene_id": "video-project-42385772-scene-001",
+      "uri": "mock://mock_a/video-project-42385772-scene-001/b91843b91cd0c3a8.mp4",
+      "duration_seconds": 4.0
+    },
+    {
+      "scene_id": "video-project-42385772-scene-002",
+      "uri": "mock://mock_a/video-project-42385772-scene-002/3e8bdf9dcf138abb.mp4",
+      "duration_seconds": 4.0
+    }
+  ],
+  "audio": null,
+  "grade": "none",
+  "ffmpeg_available": false,
+  "note": "ffmpeg not installed; composition skipped (manifest only)"
+}

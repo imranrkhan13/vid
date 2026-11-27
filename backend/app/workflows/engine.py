@@ -35,6 +35,7 @@ PROJECT_ACTIVE = {"READY", "SELECTING_PROVIDER", "GENERATING", "DOWNLOADING", "V
                   "WAITING_FOR_CREDITS", "WAITING_FOR_PROVIDER", "MANUAL_ACTION_REQUIRED", "COMPOSING", "FINAL_VALIDATION"}
 TERMINAL = {"COMPLETED", "FAILED", "CANCELLED"}
 WAIT_SECONDS = 4.0
+MAX_WAIT_SECONDS = 3600.0  # cap on a provider-declared wait (a longer reset is re-checked hourly)
 
 
 def iso(dt: datetime | None = None) -> str:
@@ -178,7 +179,19 @@ async def start_generation(db: Session, p: VideoProject, s: VideoScene):
             set_project(db, p, "PAUSED", f"No eligible provider after {waits} checks ({reasons[:300]}). Connect or top up a provider, then resume.")
             emit(db, p.id, "wait_limit", f"scene {s.idx + 1}: stopped waiting after {waits} checks; accepted clips are kept", None, s.id)
             return
-        s.not_before = _wait_until(WAIT_SECONDS)
+        # Respect the provider's own retry time when it declared one; otherwise
+        # fall back to the local polling interval. While the wait is unchanged
+        # the engine stays quiet: no repeated no_provider events every 4 seconds.
+        if sel.wait_until and sel.wait_until > iso():
+            wait_s = min((datetime.fromisoformat(sel.wait_until) - datetime.now(timezone.utc)).total_seconds(), MAX_WAIT_SECONDS)
+            if s.not_before != sel.wait_until:
+                emit(db, p.id, "provider_wait", f"scene {s.idx + 1}: waiting until {sel.wait_until} (provider-declared reset time)", None, s.id)
+            s.not_before = sel.wait_until
+            set_scene(db, s, sel.wait_reason or "WAITING_FOR_PROVIDER", reasons)
+            set_project(db, p, sel.wait_reason or "WAITING_FOR_PROVIDER", reasons[:500])
+            return
+        wait_s = WAIT_SECONDS
+        s.not_before = _wait_until(wait_s)
         set_scene(db, s, sel.wait_reason or "WAITING_FOR_PROVIDER", reasons)
         set_project(db, p, sel.wait_reason or "WAITING_FOR_PROVIDER", reasons[:500])
         emit(db, p.id, "no_provider", f"no eligible provider for scene {s.idx + 1}", {"rejected": sel.rejected, "accepted_seconds": p.accepted_duration,
@@ -201,9 +214,12 @@ async def start_generation(db: Session, p: VideoProject, s: VideoScene):
     store_handoff(db, p, s, pkg, c.provider_id)
     req.duration = c.request_seconds
     req.handoff = pkg
-    if c.provider_id in ("hf_space_ltx", "replicate", "pollinations"):
-        from app.continuity.handoff import provider_prompt
-        req.prompt = provider_prompt(pkg, req.prompt, 1400)
+    # Context delivery (section 14): each provider receives everything its declared
+    # capabilities can carry — reference images when it takes multi-reference,
+    # the previous accepted frame when it can condition on a first frame, and
+    # the handoff context folded into the prompt when it has no other channel.
+    from app.continuity.handoff import provider_prompt
+    req.prompt = provider_prompt(pkg, req.prompt, 1400)
     req.reference_images = reference_images(pkg) if c.caps.get("multi_reference") else []
     req.previous_frame = pkg["continuity"]["previous_frame"] if c.caps.get("first_frame") else None
     job = GenerationJob(user_id=p.user_id, project_id=p.id, scene_id=s.id, credential_id=c.credential.id, provider_id=c.provider_id, pool_id=c.pool.id if c.pool else None,
