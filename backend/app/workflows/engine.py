@@ -201,6 +201,9 @@ async def start_generation(db: Session, p: VideoProject, s: VideoScene):
     store_handoff(db, p, s, pkg, c.provider_id)
     req.duration = c.request_seconds
     req.handoff = pkg
+    if c.provider_id in ("hf_space_ltx", "replicate", "pollinations"):
+        from app.continuity.handoff import provider_prompt
+        req.prompt = provider_prompt(pkg, req.prompt, 1400)
     req.reference_images = reference_images(pkg) if c.caps.get("multi_reference") else []
     req.previous_frame = pkg["continuity"]["previous_frame"] if c.caps.get("first_frame") else None
     job = GenerationJob(user_id=p.user_id, project_id=p.id, scene_id=s.id, credential_id=c.credential.id, provider_id=c.provider_id, pool_id=c.pool.id if c.pool else None,
