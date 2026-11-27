@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# VGOH runtime artifacts (local media output, sqlite dbs, manual-assisted dirs)
+.vgoh_media/
+.vgoh_manual/
+*.db
+*.sqlite
+*.sqlite3
+
+# API-key store (secrets — never commit)
+.vgoh_keys.json
