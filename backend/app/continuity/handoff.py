@@ -78,3 +78,27 @@ def store_handoff(db: Session, project: VideoProject, scene: VideoScene, pkg: di
     db.add(h)
     db.commit()
     return h
+
+
+def provider_prompt(pkg: dict[str, Any], base_prompt: str, limit: int) -> str:
+    """Text-only providers receive just a prompt string, so the handoff context that has no other channel
+    (previous scene, character positions, corrective notes, camera-cut note) is folded into it, within the provider's limit.
+    The scene's own prompt always keeps priority: continuity text is trimmed first, never the scene prompt."""
+    cont = pkg.get("continuity") or {}
+    bits: list[str] = []
+    if pkg.get("scene_index", 0) > 0 and cont.get("previous_scene_id"):
+        bits.append("This continues directly from the previous scene of the same story.")
+    pos = cont.get("character_positions") or {}
+    if pos:
+        bits.append("Character positions at the end of the previous scene: " + "; ".join(f"{k}: {v}" for k, v in list(pos.items())[:4]) + ".")
+    if cont.get("camera_cut"):
+        bits.append("Start with a clean camera cut; keep the same characters, clothing, colors and art style.")
+    notes = [str(n) for n in (pkg.get("corrective_notes") or [])][:3]
+    if notes:
+        bits.append("Fix from earlier attempts: " + " ".join(notes))
+    extra = " ".join(bits)
+    base = (base_prompt or "")[:limit]
+    room = limit - len(base) - 1
+    if not extra or room < 40:
+        return base
+    return f"{base} {extra[:room]}".strip()
