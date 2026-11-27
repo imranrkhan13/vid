@@ -31,13 +31,30 @@ function Auth({ onAuth }) {
 
 function Dashboard() {
   const [d] = useAsync(() => Promise.all([get('/dashboard'), get('/projects')]), [])
+  const [prompt, setPrompt] = useState(''), [busy, setBusy] = useState(false), [err, setErr] = useState('')
   if (d.loading) return <p className="mut">Loading…</p>
   if (d.err) return <div className="err">{d.err.message}</div>
   const [dash, projects] = d.data
+  const makeVideo = async (e) => {
+    e.preventDefault(); setBusy(true); setErr('')
+    try {
+      const p = await post('/stories', { prompt, target_duration: 32, aspect_ratio: '16:9', resolution: '720p' })
+      location.hash = '/p/' + p.id
+    } catch (x) { setErr(x.message); setBusy(false) }
+  }
   return <>
     <h1>Dashboard</h1><p className="mut">{dash.projects.total} projects · {dash.connections} provider connections</p>
-    {dash.connections === 0 && <div className="note">No providers connected yet. <a href="#/providers">Connect a provider</a> before generating. Mock providers are available for testing the workflow and are clearly labeled as mock.</div>}
-    <div className="row" style={{ margin: '10px 0' }}><a className="btn" href="#/new">New video</a></div>
+    <form className="card" onSubmit={makeVideo}>
+      <h2>Make a video from a prompt</h2>
+      <p className="mut" style={{ fontSize: 12 }}>One prompt is all it takes: the harness plans the story, picks a free real provider, and if that provider runs out or fails mid-story the next one continues the same scene with the full story context.</p>
+      <textarea rows={3} required minLength={3} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Describe the video: e.g. A friendly cloud explains how rain forms, soft 3D animation" />
+      <div className="row" style={{ marginTop: 10 }}>
+        <button disabled={busy}>{busy ? 'Starting…' : 'Make the video'}</button>
+        <a href="#/new" onClick={(e) => { e.preventDefault(); setBusy(false) }}>Advanced options</a>
+      </div>
+      {err && <div className="err">{err}</div>}
+    </form>
+    <div className="row" style={{ margin: '10px 0' }}><a className="btn" href="#/new">New video (advanced)</a></div>
     <div className="grid">{projects.map((p) => <a key={p.id} href={'#/p/' + p.id} className="card" style={{ color: 'inherit' }}>
       <div className="row"><h3 className="sp">{p.title}</h3><Pill s={p.status} /></div>
       <div className="mut">{p.aspect_ratio} · {p.resolution} · {p.target_duration}s</div>
