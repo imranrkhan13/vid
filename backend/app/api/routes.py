@@ -822,40 +822,45 @@ class Connect(BaseModel):
     is_paid: bool = False
 
 
-@router.post("/providers/{provider_id}/connect")
-async def connect(provider_id: str, body: Connect, req: Request, user: User = Depends(A.current_user), db: Session = Depends(A.get_db)):
+async def _connect_core(db: Session, user: User, provider_id: str, *, label: str, secret: str | None, config: dict, balance: float | None,
+                        unit: str, is_paid: bool, req: Request | None) -> tuple[ProviderCredential, dict]:
+    """Create and verify one provider connection. Raises HTTPException on any failure.
+
+    Shared by the per-provider connect endpoint and the bulk key-entry endpoint so
+    both paths apply identical validation, encryption and quota bookkeeping.
+    """
     g = db.get(GenerationProvider, provider_id)
     if g is None or (not g.implemented and provider_id != "llm_openai_compat"):
         raise HTTPException(404 if g is None else 422, "provider not available for connection" if g else "unknown provider")
-    if db.query(ProviderCredential).filter_by(user_id=user.id, provider_id=provider_id, label=body.label).first():
+    if db.query(ProviderCredential).filter_by(user_id=user.id, provider_id=provider_id, label=label).first():
         raise HTTPException(409, "a connection with this label exists; delete it first or use another label")
-    if provider_id == "replicate" and body.config.get("free_trial_only"):
+    if provider_id == "replicate" and config.get("free_trial_only"):
         # A user-typed flag cannot make a possibly paid pool free. Only operator-verified immutable user IDs (never an email string, which anyone can type at signup) (the owner, whose Replicate
         # account has no payment method on file) may use it; everyone else connects it as a paid pool that stays blocked.
         import os
         allowed = {e.strip() for e in os.environ.get("VGOH_FREE_TRIAL_VERIFIED_USER_IDS", "").split(",") if e.strip()}
         if user.id not in allowed:
             raise HTTPException(422, "free-trial mode is unverified for this account. Connect without it: the pool is treated as paid and stays blocked unless you approve paid spend.")
-    if provider_id == "replicate" and body.config.get("free_trial_only") and (body.balance is None or body.balance <= 0):
+    if provider_id == "replicate" and config.get("free_trial_only") and (balance is None or balance <= 0):
         raise HTTPException(422, "free-trial mode needs a run budget (number of free runs you saw available); the provider does not report it")
-    if provider_id == "hf_space_ltx" and (body.balance is None or body.balance <= 0):
+    if provider_id == "hf_space_ltx" and (balance is None or balance <= 0):
         raise HTTPException(422, "enter a run budget (how many free clips you allow); the Space does not report its real free allowance")
     if provider_id == "llm_openai_compat":
         from app.providers.custom_http import validate_base_url
         try:
-            validate_base_url(str(body.config.get("base_url", "")))
+            validate_base_url(str(config.get("base_url", "")))
         except ProviderError as e:
             raise HTTPException(422, f"invalid planner endpoint: {e.message}")
-    cred = ProviderCredential(user_id=user.id, provider_id=provider_id, label=body.label, config=body.config)
+    cred = ProviderCredential(user_id=user.id, provider_id=provider_id, label=label, config=config)
     db.add(cred)
     db.flush()
-    if body.secret:
-        cred.secret_enc = encrypt_secret(body.secret, f"{user.id}|{provider_id}|{cred.id}")
-        cred.secret_hint = "…" + body.secret[-4:] if len(body.secret) >= 12 else "set"
+    if secret:
+        cred.secret_enc = encrypt_secret(secret, f"{user.id}|{provider_id}|{cred.id}")
+        cred.secret_hint = "…" + secret[-4:] if len(secret) >= 12 else "set"
     db.commit()
     audit(db, user, "provider_connect", provider_id, req)
     if provider_id == "llm_openai_compat":      # planner only: no quota pool, no video provider adapter
-        return {**ser_cred(db, cred), "health": {"ok": True, "detail": "planner endpoint saved; checked when you plan"}}
+        return cred, {"ok": True, "detail": "planner endpoint saved; checked when you plan"}
     try:
         prov = build_provider(provider_id, context_for(cred))
         q = await prov.get_quota()
@@ -870,16 +875,111 @@ async def connect(provider_id: str, body: Connect, req: Request, user: User = De
         raise HTTPException(422, f"could not verify the connection: {str(e)[:200]}")
     if provider_id != "manual":
         src, avail = q.source, q.available
-        if avail is None and body.balance is not None:
-            src, avail = "user_entered", body.balance
-        db.add(QuotaPool(user_id=user.id, credential_id=cred.id, provider_id=provider_id, unit=q.unit if q.source != "unknown" else ("runs" if (provider_id == "hf_space_ltx" or (provider_id == "replicate" and body.config.get("free_trial_only"))) else body.unit), balance_source=src, available=avail,
-                         is_paid=bool(body.is_paid or provider_id == "pollinations" or (provider_id == "replicate" and not body.config.get("free_trial_only")) or (provider_id == "custom_http" and body.config.get("paid", True))), confidence="high" if src == "verified_api" else "low", reset_at=q.reset_at))
+        if avail is None and balance is not None:
+            src, avail = "user_entered", balance
+        db.add(QuotaPool(user_id=user.id, credential_id=cred.id, provider_id=provider_id, unit=q.unit if q.source != "unknown" else ("runs" if (provider_id == "hf_space_ltx" or (provider_id == "replicate" and config.get("free_trial_only"))) else unit), balance_source=src, available=avail,
+                         is_paid=bool(is_paid or provider_id == "pollinations" or (provider_id == "replicate" and not config.get("free_trial_only")) or (provider_id == "custom_http" and config.get("paid", True))), confidence="high" if src == "verified_api" else "low", reset_at=q.reset_at))
         db.commit()
     for p in db.query(VideoProject).filter(VideoProject.user_id == user.id, VideoProject.status.in_(["WAITING_FOR_CREDITS", "WAITING_FOR_PROVIDER"])).all():
         for s in db.query(VideoScene).filter_by(project_id=p.id).all():
             s.not_before = None
     db.commit()
+    return cred, health
+
+
+@router.post("/providers/{provider_id}/connect")
+async def connect(provider_id: str, body: Connect, req: Request, user: User = Depends(A.current_user), db: Session = Depends(A.get_db)):
+    cred, health = await _connect_core(db, user, provider_id, label=body.label, secret=body.secret, config=body.config,
+                                       balance=body.balance, unit=body.unit, is_paid=body.is_paid, req=req)
     return {**ser_cred(db, cred), "health": health}
+
+
+# -------------------------------------------- unified key entry (all providers at once)
+class ProviderKeyRequest(BaseModel):
+    provider_id: str = Field(min_length=1, max_length=80)
+    api_key: str = Field(min_length=1, max_length=4000)
+
+
+class ProviderKeysBulkRequest(BaseModel):
+    """Enter keys for several providers in one call — the single entry point."""
+    keys: dict[str, str] = Field(default_factory=dict)
+    label: str = Field("default", min_length=1, max_length=80)
+    balance: float | None = Field(None, ge=0)
+    unit: str = "credits"
+
+
+class KeyStatus(BaseModel):
+    provider_id: str
+    name: str
+    category: str
+    implemented: bool
+    is_mock: bool
+    requires_key: bool
+    has_key: bool
+    label: str | None = None
+
+
+def _key_status(db: Session, user: User) -> list[KeyStatus]:
+    """Every provider with whether this user has a key. Values are never included."""
+    cat = db.query(GenerationProvider).order_by(GenerationProvider.category, GenerationProvider.name).all()
+    conns: dict[str, ProviderCredential] = {}
+    for c in db.query(ProviderCredential).filter_by(user_id=user.id).all():
+        conns.setdefault(c.provider_id, c)
+    rows: list[KeyStatus] = []
+    for g in cat:
+        c = conns.get(g.id)
+        free = g.category == "mock" or g.id == "manual"
+        rows.append(KeyStatus(provider_id=g.id, name=g.name, category=g.category, implemented=g.implemented,
+                              is_mock=g.category == "mock", requires_key=not free,
+                              has_key=bool(c and c.secret_enc), label=(c.label if c else None)))
+    return rows
+
+
+@router.get("/keys")
+def key_status(user: User = Depends(A.current_user), db: Session = Depends(A.get_db)):
+    """The single place to see which providers have a key configured."""
+    rows = _key_status(db, user)
+    return {"configured_count": sum(1 for r in rows if r.has_key), "providers": [r.model_dump() for r in rows]}
+
+
+@router.put("/keys")
+async def set_provider_key(body: ProviderKeyRequest, req: Request, user: User = Depends(A.current_user), db: Session = Depends(A.get_db)):
+    """Store (or replace) the API key for one provider."""
+    cred, health = await _connect_core(db, user, body.provider_id, label="default", secret=body.api_key,
+                                       config={}, balance=None, unit="credits", is_paid=False, req=req)
+    return {"provider_id": body.provider_id, "label": cred.label, "has_key": bool(cred.secret_enc), "health": health}
+
+
+@router.put("/keys/bulk")
+async def set_provider_keys_bulk(body: ProviderKeysBulkRequest, req: Request, user: User = Depends(A.current_user), db: Session = Depends(A.get_db)):
+    """Store keys for several providers in one call. Secrets are never echoed back."""
+    stored: list[str] = []
+    failed: list[dict] = []
+    for provider_id, api_key in body.keys.items():
+        if not api_key:
+            continue
+        try:
+            await _connect_core(db, user, provider_id, label=body.label, secret=api_key, config={},
+                                balance=body.balance, unit=body.unit, is_paid=False, req=req)
+            stored.append(provider_id)
+        except HTTPException as e:  # one bad provider must not abort the rest
+            failed.append({"provider_id": provider_id, "error": str(e.detail)})
+    return {"stored": stored, "failed": failed}
+
+
+@router.delete("/keys/{provider_id}")
+def delete_provider_key(provider_id: str, req: Request, user: User = Depends(A.current_user), db: Session = Depends(A.get_db)):
+    creds = db.query(ProviderCredential).filter_by(user_id=user.id, provider_id=provider_id).all()
+    if not creds:
+        return {"provider_id": provider_id, "removed": 0}
+    ids = [c.id for c in creds]
+    if db.query(GenerationJob).filter(GenerationJob.credential_id.in_(ids), GenerationJob.status.in_(["SUBMITTING", "SUBMITTED"])).count():
+        raise HTTPException(409, "jobs are in flight on this connection")
+    db.query(QuotaPool).filter(QuotaPool.credential_id.in_(ids)).delete(synchronize_session=False)
+    db.query(ProviderCredential).filter(ProviderCredential.id.in_(ids)).delete(synchronize_session=False)
+    db.commit()
+    audit(db, user, "keys_delete", provider_id, req)
+    return {"provider_id": provider_id, "removed": len(ids)}
 
 
 @router.delete("/credentials/{cid}")

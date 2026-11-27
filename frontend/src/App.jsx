@@ -133,6 +133,38 @@ function SceneCard({ s, p, act }) {
       <button className="sec" onClick={() => act(() => post(`/scenes/${s.id}/regenerate`))}>Regenerate</button></div></div>
 }
 
+function BulkKeys({ onSaved }) {
+  const [st, reload] = useAsync(() => get('/keys'), [])
+  const [vals, setVals] = useState({}), [busy, setBusy] = useState(false), [msg, setMsg] = useState(''), [err, setErr] = useState('')
+  if (st.loading) return <p className="mut">Loading…</p>
+  if (st.err) return <div className="err">{st.err.message}</div>
+  const { providers, configured_count } = st.data
+  const savable = providers.filter((p) => p.requires_key)
+  const save = async () => {
+    const keys = {}
+    for (const [pid, v] of Object.entries(vals)) if (v) keys[pid] = v
+    if (!Object.keys(keys).length) { setMsg('nothing to save'); return }
+    setBusy(true); setErr(''); setMsg('')
+    try {
+      const r = await put('/keys/bulk', { keys })
+      setMsg(`saved ${r.stored.length} key(s)` + (r.failed.length ? `, ${r.failed.length} failed` : ''))
+      if (r.failed.length) setErr(r.failed.map((x) => `${x.provider_id}: ${x.error}`).join('; '))
+      setVals({}); reload(); onSaved && onSaved()
+    } catch (x) { setErr(x.message) } finally { setBusy(false) }
+  }
+  return <div className="card">
+    <div className="row"><b className="sp">Enter keys for several providers at once</b><span className="mut">{configured_count} of {providers.length} providers have keys</span></div>
+    <p className="mut" style={{ fontSize: 12 }}>Paste a key for any provider and save them all in one go. Keys are encrypted on the server and never sent back to the browser.</p>
+    {savable.map((p) => <div key={p.provider_id} className="row" style={{ alignItems: 'center', gap: 8, marginTop: 6 }}>
+      <span className="sp" style={{ minWidth: 220 }}>{p.name}{p.is_mock && <Pill s="warn">MOCK</Pill>}{p.has_key && <Pill s="ok">configured</Pill>}</span>
+      <input type="password" autoComplete="off" placeholder={p.has_key ? 'replace key' : 'paste key'} value={vals[p.provider_id] || ''} onChange={(e) => setVals({ ...vals, [p.provider_id]: e.target.value })} />
+    </div>)}
+    <div className="row" style={{ marginTop: 12 }}><button onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save all entered keys'}</button>{msg && <span className="mut">{msg}</span>}</div>
+    {err && <div className="err">{err}</div>}
+  </div>
+}
+
+
 function Providers() {
   const [st, reload] = useAsync(() => get('/providers'), [])
   const [sel, setSel] = useState(null), [f, setF] = useState({ label: 'default', secret: '', balance: '' }), [err, setErr] = useState(''), [led, setLed] = useState(null)
@@ -148,6 +180,8 @@ function Providers() {
       {c.pools.map((q) => <div key={q.id} className="mut">{fmt(q.available)} {q.unit} available ({q.balance_source}, confidence {q.confidence}) {q.exhausted && <Pill s="WAITING_FOR_CREDITS">exhausted</Pill>} {q.is_paid && <Pill s="warn">paid</Pill>}</div>)}</div>)}
     {!connections.length && <p className="mut">None yet.</p>}
     {led && <div className="card"><h3>Ledger</h3><table><tbody>{led.rows.map((r, i) => <tr key={i}><td>{r.kind || r.entry_type}</td><td>{r.amount}</td><td className="mut">{r.note || r.reason || ''}</td></tr>)}</tbody></table></div>}
+    <h2 style={{ marginTop: 18 }}>API keys</h2>
+    <BulkKeys onSaved={reload} />
     <h2 style={{ marginTop: 18 }}>Catalog</h2>
     {sel && <form className="card" onSubmit={connect}><h3>Connect {sel.name}</h3>
       <label>Label</label><input value={f.label} onChange={(e) => setF({ ...f, label: e.target.value })} />
