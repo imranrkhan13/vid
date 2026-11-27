@@ -60,7 +60,7 @@ def _hist_sim(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def evaluate_clip(path: Path, *, expected: dict[str, Any], previous_frame: Path | None, provider_caps: dict[str, Any],
-                  thresholds: dict[str, float] | None = None) -> dict[str, Any]:
+                  thresholds: dict[str, float] | None = None, source_path: str | None = None) -> dict[str, Any]:
     th = {**DEFAULT_THRESHOLDS, **(thresholds or {})}
     reasons: list[str] = []
     rep: dict[str, Any] = {"method": "heuristic-v1 (uncalibrated)", "visible_watermark_detected": None, "prompt_adherence": None,
@@ -70,6 +70,16 @@ def evaluate_clip(path: Path, *, expected: dict[str, Any], previous_frame: Path 
     except fx.MediaError as e:
         return {**rep, "decision": "rejected", "reasons": [f"QUALITY_VALIDATION_FAILED: corrupt or unreadable media ({e})"], "corrupt": True}
     rep["probe"] = {k: info.get(k) for k in ("width", "height", "fps", "duration", "codec")}
+    # Provenance: when the clip was post-processed (upscaled), record the raw
+    # provider resolution too. The router's measured native-resolution factor
+    # reads native_width/native_height from here.
+    if source_path and Path(source_path).is_file():
+        try:
+            src_info = fx.probe(source_path)
+            rep["probe"]["native_width"] = src_info.get("width")
+            rep["probe"]["native_height"] = src_info.get("height")
+        except fx.MediaError:
+            pass
     if not info["has_video"]:
         return {**rep, "decision": "rejected", "reasons": ["no video stream"], "corrupt": True}
     # resolution / aspect / duration / fps

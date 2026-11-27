@@ -46,7 +46,31 @@ def test_submit_sends_portrait_dims_and_session_id():
     p = mk(h, secret="hf_tok_12345678")
     sid = asyncio.run(p.submit_generation(REQ))
     d = h.joined
-    assert d["fn_index"] == 4 and d["session_hash"] == sid and d["data"][4:8] == [704, 384, "text-to-video", 4.0]
+    assert d["fn_index"] == 4 and d["session_hash"] == sid and d["data"][4:8] == [704, 704, "text-to-video", 4.0]
+
+
+def test_submit_falls_back_to_verified_dims_on_refusal():
+    calls = []
+
+    def h(r):
+        if r.url.path == "/config":
+            return httpx.Response(200, json={"dependencies": [{"id": 4, "api_name": "text_to_video"}], "components": []})
+        if r.url.path.endswith("/queue/join"):
+            calls.append(json.loads(r.content))
+            if len(calls) == 1:
+                return httpx.Response(400, text="unsupported dimensions")
+            return httpx.Response(200, json={"event_id": "e"})
+        if r.url.path.endswith("/queue/data"):
+            return q({"msg": "estimation"}, {"msg": "process_starts"}, done(True, data=[{"video": {"url": GOOD}}, 1]))
+        if r.url.path.startswith("/gradio_api/file="):
+            return httpx.Response(200, content=b"\x00\x00\x00\x18ftypmp42" + b"x" * 100)
+        return httpx.Response(404)
+
+    p = mk(h)
+    sid = asyncio.run(p.submit_generation(REQ))
+    assert calls[0]["data"][4:6] == [704, 704]      # first try: larger size
+    assert calls[1]["data"][4:6] == [704, 384]      # fallback: verified size
+    assert sid
 
 
 def test_complete_then_download_only_from_the_fixed_host(tmp_path):

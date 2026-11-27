@@ -18,6 +18,30 @@ import httpx
 CAMERAS = ["slow push-in, eye level", "smooth side-tracking shot", "static medium shot", "gentle low-angle shot",
            "slow pan following the action", "wide establishing shot", "over-the-shoulder medium shot", "close-up, shallow depth of field"]
 
+# Role-keyed camera language: each narrative role gets a concrete lens + angle +
+# composition instead of a rotating canned phrase, so prompts describe an
+# actual shot rather than a generic camera move.
+ROLE_CAMERAS = {
+    "establishing": "wide establishing shot, 24mm lens, low horizon, subject small and centered in the environment",
+    "medium": "medium shot, 50mm lens, eye level, subject at the third-line, background softly blurred",
+    "close-up": "close-up, 85mm lens, shallow depth of field, face or key object fills the frame",
+    "insert": "insert shot, macro lens, high angle, one detail isolated against a clean background",
+    "action": "tracking shot, 35mm lens, camera moving with the subject, slight handheld energy",
+    "resolve": "slow pull-back reveal, 35mm lens, high angle, subject settled into the final composition",
+}
+ARC_ROLES = ["establishing", "medium", "action", "medium", "close-up", "action", "resolve", "insert"]
+
+SETTINGS_HINTS = {"forest": "a forest with layered trees and dappled light", "city": "a lively city street with depth",
+                  "street": "a quiet street with receding perspective", "ocean": "open water with a wide horizon",
+                  "sea": "open water with a wide horizon", "space": "a starfield with a distant planet",
+                  "sky": "open sky with volumetric clouds", "mountain": "mountain ridges fading into haze",
+                  "room": "a warm interior room with window light", "garden": "a garden with layered foliage",
+                  "desert": "dunes with long shadows", "rain": "wet surfaces reflecting light"}
+MOOD_HINTS = {"cozy": "warm practical lights, soft shadows", "dark": "low-key lighting, deep shadows, one warm accent",
+              "bright": "high-key lighting, airy and clean", "magical": "glowing particles and soft bloom",
+              "sad": "desaturated cool light, gentle rain or mist", "happy": "sunny light, saturated colors",
+              "mysterious": "fog and rim light", "epic": "god rays and wide contrast"}
+
 PALETTES = {
     "warm": {"sky": "#FFD6A5", "ground": "#C9A66B", "accent": "#FF7A59"},
     "sunset": {"sky": "#FFB38A", "ground": "#8E6A5A", "accent": "#FF5E5B"},
@@ -65,6 +89,24 @@ def split_beats(text: str) -> list[str]:
     return beats
 
 
+def analyze_idea(concept: str) -> dict[str, Any]:
+    """Deterministic idea analysis (no LLM): pull subject, action verbs, setting
+    and mood out of the free-text idea so per-scene prompts can be concrete
+    instead of generic. Anything not found stays empty — nothing is invented."""
+    low = (concept or "").lower()
+    words = re.findall(r"[a-z]+", low)
+    stop = {"a", "an", "the", "and", "or", "of", "to", "in", "on", "with", "is", "are", "it", "its", "that", "this",
+            "about", "for", "as", "by", "at", "be", "was", "were", "into", "from", "who", "explains", "tells"}
+    subjects = [w for w in words if w not in stop and len(w) > 2]
+    subject = " ".join(subjects[:4]) if subjects else ""
+    verbs = [w for w in ("walks", "runs", "flies", "sails", "falls", "rises", "grows", "dances", "swims", "jumps",
+                         "explores", "discovers", "builds", "lights", "travels", "transforms", "plays", "floats",
+                         "glows", "moves", "learns", "teaches", "shows", "opens", "closes", "turns") if w in low]
+    setting = next((v for k, v in SETTINGS_HINTS.items() if k in low), "")
+    mood = next((v for k, v in MOOD_HINTS.items() if k in low), "")
+    return {"subject": subject, "verbs": verbs[:3], "setting": setting, "mood": mood}
+
+
 def quantize_durations(total: float, n: int, lo: float = 2.0, hi: float = 8.0, step: float = 0.5) -> list[float]:
     base = max(lo, min(hi, round((total / n) / step) * step))
     d = [base] * n
@@ -110,26 +152,34 @@ def plan_heuristic(brief: dict[str, Any], characters: list[dict[str, Any]]) -> d
     pal = style_palette(style)
     names = [c["name"] for c in characters]
     char_desc = "; ".join(f"{c['name']}: {c.get('profile', {}).get('appearance', 'consistent design')}" for c in characters)
-    lighting = brief.get("lighting") or ("warm afternoon light" if "warm" in style.lower() else "soft even daylight")
+    idea = analyze_idea(concept)
+    lighting = brief.get("lighting") or idea["mood"] or ("warm afternoon light" if "warm" in style.lower() else "soft even daylight")
+    environment = brief.get("environment") or idea["setting"] or "consistent environment across scenes"
     cams = brief.get("camera_notes")
     narr_parts = split_beats(brief.get("narration") or "")
     scenes, t = [], 0.0
     for i, (txt, d) in enumerate(zip(scene_texts, durs)):
-        cam = CAMERAS[i % len(CAMERAS)] if not cams else f"{cams}; {CAMERAS[i % len(CAMERAS)]}"
-        motion = "characters keep walking forward and gesture naturally" if i % 2 == 0 else "characters move with smooth, grounded motion"
+        role = ARC_ROLES[min(i, len(ARC_ROLES) - 1)]
+        cam = ROLE_CAMERAS[role] if not cams else f"{cams}; {ROLE_CAMERAS[role]}"
+        verb = idea["verbs"][i % len(idea["verbs"])] if idea["verbs"] else ""
+        motion = f"the subject {verb} with smooth, grounded motion" if verb else ("characters keep moving forward and gesture naturally" if i % 2 == 0 else "characters move with smooth, grounded motion")
         who = [n_ for n_ in names if n_.lower() in txt.lower()] or names
         narration = " ".join(narr_parts[int(i * len(narr_parts) / n):int((i + 1) * len(narr_parts) / n)]) if narr_parts else ""
-        prompt = (f"{style}. {txt} Characters: {char_desc or 'none specified'}. Camera: {cam}. Lighting: {lighting}. "
-                  f"Motion: {motion}. Keep character designs, colors and proportions identical to the character bible.")
+        subject_bit = f" Subject: {idea['subject']}." if idea["subject"] and i == 0 else ""
+        prompt = (f"{style}. {txt}{subject_bit} Characters: {char_desc or 'none specified'}. "
+                  f"Environment: {environment}. Lighting: {lighting}. Camera: {cam}. "
+                  f"Composition: balanced framing, clear focal point, no clutter. Motion: {motion}. "
+                  f"Keep character designs, colors and proportions identical to the character bible.")
+        prompt = prompt[:1500]
         scenes.append({
             "idx": i, "title": (txt[:70] + ("..." if len(txt) > 70 else "")) or f"Scene {i + 1}", "description": txt, "prompt": prompt,
             "negative_prompt": "extra limbs, changed clothing, different face, text artifacts, watermark, flicker, morphing, sudden camera jump",
-            "camera": cam, "motion": motion, "lighting": lighting, "environment": brief.get("environment") or "consistent environment across scenes",
+            "camera": cam, "motion": motion, "lighting": lighting, "environment": environment,
             "emotion": "engaged and curious", "narration": narration, "characters": who, "duration": d, "start_time": round(t, 6),
             "acceptance": {"min_overall": 60, "must_show_characters": who, "keep_palette": True, "no_visible_watermark": bool(brief.get("require_no_watermark"))},
         })
         t += d
-    return {"director": "heuristic-v1", "title": brief.get("title"), "story": concept, "scenes": scenes,
+    return {"director": "heuristic-v2", "title": brief.get("title"), "story": concept, "scenes": scenes,
             "style_bible": {"style": style, "palette": pal, "lighting": lighting, "camera_language": [s["camera"] for s in scenes][:3],
                             "negative": "extra limbs, flicker, watermark, unreadable text", "audience": brief.get("audience")},
             "audio_timeline": {"strategy": brief.get("audio_strategy", "external_master_narration"), "total_seconds": total},

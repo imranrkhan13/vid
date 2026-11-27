@@ -695,8 +695,21 @@ async def import_clip(sid: str, req: Request, filename: str = "clip.mp4", user: 
         dest.unlink(missing_ok=True)
         raise HTTPException(422, f"not a playable video: {e}")
     job = db.query(GenerationJob).filter_by(scene_id=s.id, status="MANUAL").order_by(GenerationJob.created_at.desc()).first()
+    # Same post-process as provider downloads: denoise + upscale + sharpen to the
+    # project frame, so QA grades and composition consumes the best pixels.
+    meta = {"imported": True, "cost": 0}
+    try:
+        from app.media.postprocess import postprocess
+        proc = dest.with_name(dest.stem + "_up.mp4")
+        pp = await asyncio.to_thread(postprocess, dest, proc, width=p.width, height=p.height, fps=p.fps)
+        if pp.get("applied"):
+            meta["source_path"] = str(dest)
+            dest = proc
+        meta["postprocess"] = pp
+    except Exception as e:  # noqa: BLE001 - never lose an import to post-processing
+        meta["postprocess"] = {"applied": False, "error": str(e)[:200]}
     art = GenerationArtifact(user_id=user.id, project_id=p.id, scene_id=s.id, job_id=job.id if job else None, provider_id="manual", kind="clip", path=str(dest),
-                             duration=info["video_duration"], status="candidate", meta={"imported": True, "cost": 0})
+                             duration=info["video_duration"], status="candidate", meta=meta)
     db.add(art)
     if job:
         job.status = "SUCCEEDED"
