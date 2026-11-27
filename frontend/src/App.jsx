@@ -93,7 +93,7 @@ function Project({ pid }) {
     <div className="row"><h1 className="sp">{p.title}</h1><Pill s={p.status} /></div>
     <p className="mut">{p.aspect_ratio} · {p.resolution || p.canonical_state?.resolution || '720p'} · {p.fps}fps · {p.target_duration}s · {fmt(p.accepted_duration)}s accepted</p>
     <div className="row" style={{ marginBottom: 12 }}>
-      {p.status === 'STORYBOARD_READY' && <button onClick={() => act(() => post(`/projects/${pid}/approve`))}>Approve storyboard</button>}
+      {['STORYBOARD_READY', 'AWAITING_USER_APPROVAL'].includes(p.status) && <button onClick={() => act(() => post(`/projects/${pid}/approve`))}>Approve storyboard</button>}
       {['STORYBOARD_READY', 'READY', 'APPROVED'].includes(p.status) && <button onClick={() => act(() => post(`/projects/${pid}/generate`))}>Generate</button>}
       {running && <button className="sec" onClick={() => act(() => post(`/projects/${pid}/pause`))}>Pause</button>}
       {p.status === 'PAUSED' && <button onClick={() => act(() => post(`/projects/${pid}/resume`))}>Resume</button>}
