@@ -1,0 +1,29 @@
+# Render Blueprint: free web service + free Postgres, both new and isolated.
+services:
+  - type: web
+    name: vgoh
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      # Set DATABASE_URL in the Render dashboard to a PostgreSQL URL (postgresql+psycopg2://...). The live deploy uses a
+      # separate Neon free project. Without it the app falls back to SQLite on the ephemeral disk.
+      - key: DATABASE_URL
+        sync: false
+      - key: VGOH_MASTER_KEY
+        generateValue: true
+      - key: VGOH_COMPOSE_SEGMENTED
+        value: "1"
+      - key: VGOH_X264_PRESET
+        value: veryfast
+      - key: VGOH_FFMPEG_THREADS
+        value: "1"
+      - key: VGOH_DB_BLOBS
+        value: "1"
+      - key: VGOH_MOCK_DOWNSCALE
+        value: "3"
+      - key: VGOH_COOKIE_SECURE
+        value: "1"
+databases:
+  - name: vgoh-db
+    plan: free
