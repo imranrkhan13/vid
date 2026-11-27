@@ -74,10 +74,17 @@ def evaluate_clip(path: Path, *, expected: dict[str, Any], previous_frame: Path 
         return {**rep, "decision": "rejected", "reasons": ["no video stream"], "corrupt": True}
     # resolution / aspect / duration / fps
     ew, eh = expected["width"], expected["height"]
-    asp_ok = abs(info["width"] / info["height"] - ew / eh) < 0.02
+    asp_dev = abs(info["width"] / info["height"] - ew / eh)
+    asp_ok = asp_dev < 0.02
     rep["aspect_ok"] = asp_ok
     if not asp_ok:
-        reasons.append(f"aspect ratio mismatch: got {info['width']}x{info['height']}")
+        # Composition scales and letterboxes every clip to the target frame, so
+        # a small aspect deviation is corrected at export; it is a note, not a
+        # rejection. A large deviation (wrong orientation) is a real mismatch.
+        if asp_dev > 0.15:
+            reasons.append(f"aspect ratio mismatch: got {info['width']}x{info['height']}")
+        else:
+            rep["aspect_note"] = f"aspect {info['width']}x{info['height']} differs from target; composition pads to {ew}x{eh}"
     rep["native_resolution_ok"] = info["width"] >= ew and info["height"] >= eh
     rep["upscale_needed"] = not rep["native_resolution_ok"]
     dur_err = abs(info["video_duration"] - expected["duration"])

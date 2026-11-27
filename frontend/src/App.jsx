@@ -99,8 +99,10 @@ function Project({ pid }) {
   const [st, reload] = useAsync(() => Promise.all([get('/projects/' + pid), get(`/projects/${pid}/scenes`), get(`/projects/${pid}/timeline`), get(`/projects/${pid}/handoffs`), get(`/projects/${pid}/manual-tasks`)]), [pid])
   const [tab, setTab] = useState('board'), [err, setErr] = useState(''), [exp, setExp] = useState(null), [msg, setMsg] = useState('')
   useEffect(() => { const t = setInterval(reload, 3000); return () => clearInterval(t) }, [reload])
+  // A finished export shows on the Export tab without pressing Export again.
+  useEffect(() => { if (st.data && !exp) { const done = (st.data[0].exports || []).find((e) => e.status === 'DONE'); if (done) setExp(done) } }, [st.data, exp])
   const act = async (fn) => { setErr(''); try { await fn(); reload() } catch (x) { setErr(x.message) } }
-  const doExport = () => act(async () => { const e = await post(`/projects/${pid}/export`, {}); const poll = async () => { const x = await get('/exports/' + e.id); setExp(x); if (!['COMPLETED', 'FAILED'].includes(x.status)) setTimeout(poll, 1500) }; poll() })
+  const doExport = () => act(async () => { const e = await post(`/projects/${pid}/export`, {}); const poll = async () => { const x = await get('/exports/' + e.id); setExp(x); if (!['DONE', 'FAILED'].includes(x.status)) setTimeout(poll, 1500) }; poll() })
   if (st.loading) return <p className="mut">Loading…</p>
   if (st.err) return <div className="err">{st.err.message}</div>
   const [p, scenes, tl, handoffs, manual] = st.data
@@ -128,9 +130,10 @@ function Project({ pid }) {
       <details><summary className="mut">Context package carried to the next provider</summary><pre style={{ whiteSpace: 'pre-wrap', fontSize: 12 }}>{JSON.stringify(h.package, null, 2)}</pre></details></div>)}{!handoffs.length && <p className="mut">No handoffs yet.</p>}</div>}
     {tab === 'manual' && <div>{manual.map((m, i) => <div className="card" key={i}><pre style={{ whiteSpace: 'pre-wrap' }}>{JSON.stringify(m, null, 2)}</pre></div>)}{!manual.length && <p className="mut">No manual tasks.</p>}</div>}
     {tab === 'export' && <div className="card">{!exp ? <p className="mut">Finish all scenes, then press Export final video.</p> : <><Pill s={exp.status} />
-      {exp.status === 'COMPLETED' && <><video controls src={`/api/v1/exports/${exp.id}/files/video`} /><div className="row" style={{ marginTop: 10 }}>
+      {exp.status === 'DONE' && <><video controls src={`/api/v1/exports/${exp.id}/files/video`} /><div className="row" style={{ marginTop: 10 }}>
         <a className="btn" href={`/api/v1/exports/${exp.id}/files/video`} download>Download MP4</a>
         {['subtitles', 'report', 'storyboard'].map((k) => <a key={k} className="btn" style={{ background: 'var(--panel2)' }} href={`/api/v1/exports/${exp.id}/files/${k}`}>{k}</a>)}</div></>}
+      {['QUEUED', 'RUNNING'].includes(exp.status) && <p className="mut">Composing…</p>}
       {exp.status === 'FAILED' && <div className="err">{exp.error}</div>}</>}</div>}
   </>
 }
