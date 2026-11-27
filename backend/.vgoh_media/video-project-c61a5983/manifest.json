@@ -1,0 +1,52 @@
+{
+  "project_id": "video-project-c61a5983",
+  "resolution": "1080x1920",
+  "aspect_ratio": "9:16",
+  "fps": 30,
+  "total_duration_seconds": 32.0,
+  "clips": [
+    {
+      "scene_id": "video-project-c61a5983-scene-001",
+      "uri": "mock://mock_b/video-project-c61a5983-scene-001/ca3cc8c1261d0f4e.mp4",
+      "duration_seconds": 4.0
+    },
+    {
+      "scene_id": "video-project-c61a5983-scene-002",
+      "uri": "mock://mock_b/video-project-c61a5983-scene-002/05c81efd31d3a649.mp4",
+      "duration_seconds": 4.0
+    },
+    {
+      "scene_id": "video-project-c61a5983-scene-003",
+      "uri": "mock://mock_b/video-project-c61a5983-scene-003/4969d527b96d4aa3.mp4",
+      "duration_seconds": 4.0
+    },
+    {
+      "scene_id": "video-project-c61a5983-scene-004",
+      "uri": "mock://mock_b/video-project-c61a5983-scene-004/dda6eac8f2d5b00f.mp4",
+      "duration_seconds": 4.0
+    },
+    {
+      "scene_id": "video-project-c61a5983-scene-005",
+      "uri": "mock://mock_b/video-project-c61a5983-scene-005/b9b906965b21387d.mp4",
+      "duration_seconds": 4.0
+    },
+    {
+      "scene_id": "video-project-c61a5983-scene-006",
+      "uri": "mock://mock_b/video-project-c61a5983-scene-006/41e6d395b550cbc9.mp4",
+      "duration_seconds": 4.0
+    },
+    {
+      "scene_id": "video-project-c61a5983-scene-007",
+      "uri": "mock://mock_b/video-project-c61a5983-scene-007/531525ca16d427e0.mp4",
+      "duration_seconds": 4.0
+    },
+    {
+      "scene_id": "video-project-c61a5983-scene-008",
+      "uri": "mock://mock_b/video-project-c61a5983-scene-008/2528e39b27f34163.mp4",
+      "duration_seconds": 4.0
+    }
+  ],
+  "audio": null,
+  "ffmpeg_available": false,
+  "note": "ffmpeg not installed; composition skipped (manifest only)"
+}

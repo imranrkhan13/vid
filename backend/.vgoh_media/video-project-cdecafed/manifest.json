@@ -1,0 +1,17 @@
+{
+  "project_id": "video-project-cdecafed",
+  "resolution": "1080x1920",
+  "aspect_ratio": "9:16",
+  "fps": 30,
+  "total_duration_seconds": 4.0,
+  "clips": [
+    {
+      "scene_id": "video-project-cdecafed-scene-001",
+      "uri": "mock://mock_p/video-project-cdecafed-scene-001/58b084af5ec082f8.mp4",
+      "duration_seconds": 4.0
+    }
+  ],
+  "audio": null,
+  "ffmpeg_available": false,
+  "note": "ffmpeg not installed; composition skipped (manifest only)"
+}

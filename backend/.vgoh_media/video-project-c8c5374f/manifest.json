@@ -1,0 +1,18 @@
+{
+  "project_id": "video-project-c8c5374f",
+  "resolution": "1080x1920",
+  "aspect_ratio": "9:16",
+  "fps": 30,
+  "total_duration_seconds": 4.0,
+  "clips": [
+    {
+      "scene_id": "video-project-c8c5374f-scene-001",
+      "uri": "mock://mock_p/video-project-c8c5374f-scene-001/f7e472cc58ed1865.mp4",
+      "duration_seconds": 4.0
+    }
+  ],
+  "audio": null,
+  "grade": "none",
+  "ffmpeg_available": false,
+  "note": "ffmpeg not installed; composition skipped (manifest only)"
+}

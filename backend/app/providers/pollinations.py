@@ -100,6 +100,13 @@ class PollinationsProvider(VideoProvider):
         m = await self._model_info()
         res = (m.get("resolutions") or ["720p"])[0]
         q = {"model": m["name"], "duration": int(round(request.duration)), "aspectRatio": request.aspect_ratio, "resolution": res, "audio": "false"}
+        # Continuity: image[0] is the start frame for models with start_frame capability.
+        # The API takes public URLs or data URIs; a local previous frame is inlined.
+        if request.previous_frame and "start_frame" in (m.get("video_capabilities") or []) and Path(request.previous_frame).is_file():
+            import base64
+            png = Path(request.previous_frame).read_bytes()
+            if len(png) <= 4 * 1024 * 1024:
+                q["image[0]"] = "data:image/png;base64," + base64.b64encode(png).decode()
         prompt = request.prompt[:3000]
         try:
             async with self._client() as cl:

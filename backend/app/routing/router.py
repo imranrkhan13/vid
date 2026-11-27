@@ -62,6 +62,7 @@ class Selection:
     candidates: list[Candidate]
     rejected: list[dict[str, Any]]
     wait_reason: str | None = None   # WAITING_FOR_CREDITS | WAITING_FOR_PROVIDER | MANUAL_ACTION_REQUIRED
+    wait_until: str | None = None    # earliest known reset time among blocked pools, if any
 
 
 def measured(db: Session, user_id: str, provider_id: str) -> dict[str, float | None]:
@@ -176,4 +177,10 @@ async def select_provider(db: Session, project: VideoProject, scene: VideoScene,
         return Selection(cands[0], cands, rejected)
     if saw_manual:
         return Selection(None, [], rejected, "MANUAL_ACTION_REQUIRED")
-    return Selection(None, [], rejected, "WAITING_FOR_CREDITS" if saw_credit_block else "WAITING_FOR_PROVIDER")
+    # When every pool is blocked, report the earliest reset time the providers
+    # actually declared, so the engine waits for the provider's own retry time
+    # instead of polling on a fixed local interval.
+    resets = [p.exhausted_until for p in db.query(QuotaPool).filter(QuotaPool.user_id == project.user_id,
+                QuotaPool.exhausted.is_(True), QuotaPool.exhausted_until.is_not(None)).all() if p.exhausted_until]
+    wait_until = min(resets) if resets else None
+    return Selection(None, [], rejected, "WAITING_FOR_CREDITS" if saw_credit_block else "WAITING_FOR_PROVIDER", wait_until)

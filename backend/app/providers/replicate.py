@@ -60,10 +60,11 @@ class ReplicateProvider(VideoProvider):
     async def get_capabilities(self) -> dict[str, Any]:
         free = bool(self.ctx.config.get("free_trial_only", False))
         return {"label": f"Replicate / {self.model}", "modes": ["text_to_video", "image_to_video"], "min_duration": 6, "max_duration": 6,
-                "durations": [6], "aspect_ratios": ["16:9"], "max_width": 1280, "max_height": 720, "first_frame": False, "multi_reference": False,
+                "durations": [6], "aspect_ratios": ["16:9"], "max_width": 1280, "max_height": 720, "first_frame": True, "multi_reference": False,
                 "character_reference": False, "audio": False, "watermark": None, "commercial_ok": None,
                 "cost_per_second": (1.0 / 6) if free else 0.5 / 6, "unit": "runs" if free else "usd", "paid": not free, "est_latency_s": 180, "speed_score": 0.3, "concurrency": 1,
-                "source": "owner-verified 6s free run on 2026-11-27; list price $0.50/run; free allowance size unknown"}
+                "source": "owner-verified 6s free run on 2026-11-27; list price $0.50/run; free allowance size unknown; "
+                          "first_frame_image input confirmed in the model's API schema (replicate.com/minimax/video-01)"}
 
     async def check_health(self):
         try:
@@ -84,7 +85,15 @@ class ReplicateProvider(VideoProvider):
         return CostEstimate(1.0 if free else 0.5, "runs" if free else "usd", not free, "medium", "free-trial mode counts 1 run per clip against a run budget the user entered; the real allowance is unknown and 402 stops it. Otherwise list price $0.50")
 
     async def submit_generation(self, request: GenerationRequest) -> str:
-        body = {"input": {"prompt": request.prompt[:2000], "prompt_optimizer": True}}
+        inp = {"prompt": request.prompt[:2000], "prompt_optimizer": True}
+        # Continuity: the previous accepted frame conditions this clip's first frame.
+        # The API takes a URL or data URI; a local frame is inlined as a data URI.
+        if request.previous_frame and Path(request.previous_frame).is_file():
+            import base64
+            png = Path(request.previous_frame).read_bytes()
+            if len(png) <= 4 * 1024 * 1024:
+                inp["first_frame_image"] = "data:image/png;base64," + base64.b64encode(png).decode()
+        body = {"input": inp}
         try:
             async with self._client() as cl:
                 r = await cl.post(f"/models/{self.model}/predictions", json=body, headers={"Cancel-After": "10m"})
