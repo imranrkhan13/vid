@@ -34,7 +34,7 @@ function Dashboard() {
   const [prompt, setPrompt] = useState(''), [busy, setBusy] = useState(false), [err, setErr] = useState('')
   if (d.loading) return <p className="mut">Loading…</p>
   if (d.err) return <div className="err">{d.err.message}</div>
-  const [dash, projects] = d.data
+  const [, projects] = d.data
   const makeVideo = async (e) => {
     e.preventDefault(); setBusy(true); setErr('')
     try {
@@ -43,27 +43,24 @@ function Dashboard() {
     } catch (x) { setErr(x.message); setBusy(false) }
   }
   return <>
-    <h1>Dashboard</h1><p className="mut">{dash.projects.total} projects · {dash.connections} provider connections</p>
-    <form className="card" onSubmit={makeVideo}>
-      <h2>Make a video from a prompt</h2>
-      <p className="mut" style={{ fontSize: 12 }}>One prompt is all it takes: the harness plans the story, picks a free real provider, and if that provider runs out or fails mid-story the next one continues the same scene with the full story context.</p>
-      <textarea rows={3} required minLength={3} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Describe the video: e.g. A friendly cloud explains how rain forms, soft 3D animation" />
-      <div className="row" style={{ marginTop: 10 }}>
-        <button disabled={busy}>{busy ? 'Starting…' : 'Make the video'}</button>
-        <a href="#/new" onClick={(e) => { e.preventDefault(); setBusy(false) }}>Advanced options</a>
-      </div>
-      {err && <div className="err">{err}</div>}
-    </form>
-    <div className="row" style={{ margin: '10px 0' }}><a className="btn" href="#/new">New video (advanced)</a></div>
-    <div className="grid">{projects.map((p) => <a key={p.id} href={'#/p/' + p.id} className="card" style={{ color: 'inherit' }}>
-      <div className="row"><h3 className="sp">{p.title}</h3><Pill s={p.status} /></div>
-      <div className="mut">{p.aspect_ratio} · {p.resolution} · {p.target_duration}s</div>
-      <div className="bar" style={{ marginTop: 10 }}><i style={{ width: Math.min(100, 100 * (p.accepted_duration || 0) / p.target_duration) + '%' }} /></div>
-      <div className="mut" style={{ marginTop: 4 }}>{fmt(p.accepted_duration)}s of {p.target_duration}s accepted</div></a>)}</div>
-    <h2 style={{ marginTop: 20 }}>Credits</h2>
-    <div className="card"><table><thead><tr><th>Provider</th><th>Label</th><th>Available</th><th>Source</th><th /></tr></thead><tbody>
-      {dash.credits.map((c, i) => <tr key={i}><td>{c.provider}</td><td>{c.label}</td><td>{fmt(c.available)} {c.unit}</td><td>{c.source}</td><td>{c.exhausted && <Pill s="WAITING_FOR_CREDITS">exhausted</Pill>}</td></tr>)}
-      {!dash.credits.length && <tr><td colSpan={5} className="mut">None connected.</td></tr>}</tbody></table></div></>
+    <div className="hero">
+      <form onSubmit={makeVideo}>
+        <textarea className="hero-input" rows={3} required minLength={3} autoFocus value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Describe your idea…" />
+        <div className="row" style={{ marginTop: 14 }}>
+          <button className="hero-btn" disabled={busy}>{busy ? 'Starting…' : 'Generate'}</button>
+        </div>
+        {err && <div className="err">{err}</div>}
+      </form>
+    </div>
+    {projects.length > 0 && <>
+      <h2 style={{ marginTop: 28 }}>Your videos</h2>
+      <div className="grid">{projects.map((p) => <a key={p.id} href={'#/p/' + p.id} className="card" style={{ color: 'inherit' }}>
+        <div className="row"><h3 className="sp">{p.title}</h3><Pill s={p.status} /></div>
+        <div className="mut">{p.aspect_ratio} · {p.resolution} · {p.target_duration}s</div>
+        <div className="bar" style={{ marginTop: 10 }}><i style={{ width: Math.min(100, 100 * (p.accepted_duration || 0) / p.target_duration) + '%' }} /></div>
+        <div className="mut" style={{ marginTop: 4 }}>{fmt(p.accepted_duration)}s of {p.target_duration}s accepted</div></a>)}</div>
+    </>}
+  </>
 }
 
 function NewProject() {
@@ -95,6 +92,32 @@ function Console({ pid }) {
     <span className="t">{new Date(e.at + (e.at.endsWith('Z') ? '' : 'Z')).toLocaleTimeString()}</span> <span className="k">{e.kind}</span> {e.message}</div>)}{!ev.length && <span className="t">waiting for events…</span>}</div>
 }
 
+function Process({ p, scenes, pid }) {
+  // The inside process, live: what the harness is doing while it runs in the background.
+  const accepted = scenes.filter((s) => s.status === 'ACCEPTED').length
+  const current = scenes.find((s) => s.status !== 'ACCEPTED')
+  const steps = [
+    { label: 'Idea received', done: true },
+    { label: 'Story planned', done: scenes.length > 0 },
+    { label: `Generating scenes (${accepted}/${scenes.length} accepted)`, done: accepted === scenes.length && scenes.length > 0,
+      now: ['GENERATING', 'SELECTING_PROVIDER', 'DOWNLOADING', 'VALIDATING', 'RETRYING', 'SWITCHING_PROVIDER'].includes(p.status),
+      detail: current ? `scene ${current.idx + 1}: ${current.status.toLowerCase().replace(/_/g, ' ')}${current.note ? ' — ' + current.note : ''}` : '' },
+    { label: 'Composing final video', done: p.status === 'COMPLETED', now: ['COMPOSING', 'FINAL_VALIDATION'].includes(p.status) },
+    { label: 'Ready to download', done: p.status === 'COMPLETED' },
+  ]
+  return <div className="card">
+    <h2>Making your video…</h2>
+    <div className="bar" style={{ margin: '10px 0 14px' }}><i style={{ width: Math.min(100, 100 * (p.accepted_duration || 0) / p.target_duration) + '%' }} /></div>
+    {steps.map((s, i) => <div key={i} className={'step' + (s.done ? ' done' : s.now ? ' now' : '')}>
+      <span className="dot">{s.done ? '✓' : i + 1}</span>
+      <span><b>{s.label}</b>{s.detail && <div className="mut" style={{ fontSize: 12 }}>{s.detail}</div>}</span>
+    </div>)}
+    <h3 style={{ marginTop: 14 }}>Live process</h3>
+    <Console pid={pid} />
+  </div>
+}
+
+
 function Project({ pid }) {
   const [st, reload] = useAsync(() => Promise.all([get('/projects/' + pid), get(`/projects/${pid}/scenes`), get(`/projects/${pid}/timeline`), get(`/projects/${pid}/handoffs`), get(`/projects/${pid}/manual-tasks`)]), [pid])
   const [tab, setTab] = useState('board'), [err, setErr] = useState(''), [exp, setExp] = useState(null), [msg, setMsg] = useState('')
@@ -121,7 +144,9 @@ function Project({ pid }) {
       <button style={{ background: 'var(--panel2)' }} title="Free local voice (eSpeak NG). Robotic; upload a recording for a better one." onClick={() => act(async () => { const r = await post(`/projects/${pid}/narration/synthesize`, {}); setMsg(`Voiced ${r.segments} narration segments (${fmt(r.duration)}s, free local robotic voice)`) })}>Add free voice</button>{tl.accepted >= tl.total - 0.05 && <button onClick={doExport}>Export final video</button>}</div>
     {['WAITING_FOR_CREDITS', 'WAITING_FOR_PROVIDER'].includes(p.status) && <div className="banner">Waiting: no eligible provider has credit. Connect another provider in <a href="#/providers">Providers</a>; generation continues from the same scene automatically.</div>}
     {err && <div className="err">{err}</div>}{msg && <div className="card" style={{ borderColor: "var(--ok, #3a7)" }}>{msg}</div>}
-    <div className="tabs">{['board', 'timeline', 'console', 'handoffs', 'manual', 'export'].map((t) => <a key={t} href="#" className={tab === t ? 'on' : ''} onClick={(e) => { e.preventDefault(); setTab(t) }}>{{ board: 'Storyboard', timeline: 'Timeline', console: 'Live console', handoffs: 'Handoffs', manual: 'Manual tasks (' + manual.length + ')', export: 'Export' }[t]}</a>)}</div>
+    {(running || ['RETRYING', 'SWITCHING_PROVIDER', 'WAITING_FOR_CREDITS', 'WAITING_FOR_PROVIDER', 'FINAL_VALIDATION'].includes(p.status)) && p.status !== 'MANUAL_ACTION_REQUIRED'
+      ? <Process p={p} scenes={scenes} pid={pid} />
+      : <><div className="tabs">{['board', 'timeline', 'console', 'handoffs', 'manual', 'export'].map((t) => <a key={t} href="#" className={tab === t ? 'on' : ''} onClick={(e) => { e.preventDefault(); setTab(t) }}>{{ board: 'Storyboard', timeline: 'Timeline', console: 'Live console', handoffs: 'Handoffs', manual: 'Manual tasks (' + manual.length + ')', export: 'Export' }[t]}</a>)}</div>
     {tab === 'board' && <div className="grid">{scenes.map((s) => <SceneCard key={s.id} s={s} p={p} act={act} />)}</div>}
     {tab === 'timeline' && <div className="card"><div className="tl">{tl.scenes.map((s) => <div key={s.scene_id} title={s.title} style={{ flex: s.duration, background: colors[s.status] || 'var(--panel2)' }}>{s.idx + 1}{s.provider ? ' · ' + s.provider : ''}</div>)}</div>
       <table style={{ marginTop: 12 }}><thead><tr><th>#</th><th>Start</th><th>Dur</th><th>Status</th><th>Provider</th><th>QA</th></tr></thead><tbody>{tl.scenes.map((s) => <tr key={s.scene_id}><td>{s.idx + 1}</td><td>{fmt(s.start)}s</td><td>{fmt(s.duration)}s</td><td><Pill s={s.status} /></td><td>{s.provider || '-'}</td><td>{s.overall ?? '-'}</td></tr>)}</tbody></table></div>}
@@ -134,7 +159,7 @@ function Project({ pid }) {
         <a className="btn" href={`/api/v1/exports/${exp.id}/files/video`} download>Download MP4</a>
         {['subtitles', 'report', 'storyboard'].map((k) => <a key={k} className="btn" style={{ background: 'var(--panel2)' }} href={`/api/v1/exports/${exp.id}/files/${k}`}>{k}</a>)}</div></>}
       {['QUEUED', 'RUNNING'].includes(exp.status) && <p className="mut">Composing…</p>}
-      {exp.status === 'FAILED' && <div className="err">{exp.error}</div>}</>}</div>}
+      {exp.status === 'FAILED' && <div className="err">{exp.error}</div>}</>}</div>}</>}
   </>
 }
 
