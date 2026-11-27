@@ -37,6 +37,16 @@ def build_handoff(db: Session, project: VideoProject, scene: VideoScene, *, reas
         if prev_art:
             prev_frame = (prev_art.meta or {}).get("last_frame")
             positions = (prev_art.meta or {}).get("end_positions") or {}
+    # Full story-so-far: every accepted scene, in order, with what each shows and
+    # who produced it. The next provider gets the complete narrative context, not
+    # just the immediately previous scene.
+    story_so_far = []
+    for s in (db.query(VideoScene).filter(VideoScene.project_id == project.id, VideoScene.idx < scene.idx, VideoScene.status == "ACCEPTED")
+              .order_by(VideoScene.idx).all()):
+        art = db.get(GenerationArtifact, s.accepted_artifact_id) if s.accepted_artifact_id else None
+        story_so_far.append({"scene": s.idx + 1, "title": s.title, "description": s.description, "prompt": s.prompt,
+                             "narration": s.narration, "duration": s.duration, "start": s.start_time,
+                             "generated_by": art.provider_id if art else None})
     caps = to_caps or {}
     degraded = []
     if prev_frame and not caps.get("first_frame", True):
@@ -51,6 +61,7 @@ def build_handoff(db: Session, project: VideoProject, scene: VideoScene, *, reas
         "scene_description": scene.description, "prompt": scene.prompt, "negative_prompt": scene.negative_prompt,
         "characters": char_out, "motion": scene.motion, "camera": scene.camera, "lighting": scene.lighting, "environment": scene.environment,
         "emotion": scene.emotion, "narration": scene.narration, "corrective_notes": list(scene.corrective_notes or []),
+        "story_so_far": story_so_far,
         "style": {"version": project.style_version, **((style.data if style else {}) or {})},
         "continuity": {"previous_frame": prev_frame, "previous_scene_id": prev.id if prev else None,
                        "character_positions": positions, "first_frame_requirement": "match previous ending frame" if prev_frame else "free start",
@@ -82,11 +93,20 @@ def store_handoff(db: Session, project: VideoProject, scene: VideoScene, pkg: di
 
 def provider_prompt(pkg: dict[str, Any], base_prompt: str, limit: int) -> str:
     """Text-only providers receive just a prompt string, so the handoff context that has no other channel
-    (previous scene, character positions, corrective notes, camera-cut note) is folded into it, within the provider's limit.
-    The scene's own prompt always keeps priority: continuity text is trimmed first, never the scene prompt."""
+    (the full story so far, character positions, corrective notes, camera-cut note) is folded into it,
+    within the provider's limit. The scene's own prompt always keeps priority: continuity text is
+    trimmed first, never the scene prompt."""
     cont = pkg.get("continuity") or {}
     bits: list[str] = []
-    if pkg.get("scene_index", 0) > 0 and cont.get("previous_scene_id"):
+    story = pkg.get("story_so_far") or []
+    if story:
+        # Full narrative context: what happened in every accepted scene so far,
+        # so a provider taking over mid-story knows the whole story, not just
+        # the previous shot.
+        summary = " ".join(f"Scene {s.get('scene')}: {(s.get('description') or s.get('title') or '')[:120]}." for s in story)
+        bits.append("Story so far: " + summary)
+        bits.append(f"This is scene {pkg.get('scene_index', 0) + 1}; continue the same story, characters and art style seamlessly.")
+    elif pkg.get("scene_index", 0) > 0 and cont.get("previous_scene_id"):
         bits.append("This continues directly from the previous scene of the same story.")
     pos = cont.get("character_positions") or {}
     if pos:

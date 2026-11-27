@@ -406,6 +406,78 @@ def generate(pid: str, user: User = Depends(A.current_user), db: Session = Depen
     return ser_project(db, p)
 
 
+# -------------------------------------------- one-shot: prompt -> finished video
+class StoryIn(BaseModel):
+    """One prompt in, one video out. Everything else has a sensible default."""
+    prompt: str = Field(min_length=3, max_length=8000)
+    title: str = ""
+    target_duration: float = Field(32, gt=4, le=600)
+    aspect_ratio: str = "16:9"
+    resolution: str = "720p"
+    fps: int = Field(30, ge=12, le=60)
+    visual_style: str = "soft colorful 3D educational animation"
+    scene_count: int | None = Field(None, ge=1, le=60)
+    mode: str = "free_only"
+    paid_budget: float = Field(0, ge=0)
+    burn_subtitles: bool = False
+    transition: str = "cut"
+    free_run_budget: int = Field(10, ge=1, le=200)
+
+
+async def _ensure_free_providers(db: Session, user: User, run_budget: int) -> list[str]:
+    """Connect the maintainable free providers for this user if absent.
+
+    Choice of providers the platform itself maintains:
+      * hf_space_ltx — the only REAL free video generator (community Space, no
+        key, no money). Its free GPU allowance is small and unreadable, so the
+        pool carries the user's run budget; when it is refused the engine marks
+        it exhausted and hands off.
+      * manual — the always-available fallback: the harness writes the brief
+        (with the full story context) and a human generates in any consumer UI
+        and imports the clip. No key, no cost, never breaks.
+    """
+    connected: list[str] = []
+    have = {c.provider_id for c in db.query(ProviderCredential).filter_by(user_id=user.id).all()}
+    for provider_id, balance in (("hf_space_ltx", float(run_budget)), ("manual", None)):
+        if provider_id in have:
+            connected.append(provider_id)
+            continue
+        try:
+            await _connect_core(db, user, provider_id, label="auto", secret=None, config={},
+                                balance=balance, unit="runs", is_paid=False, req=None)
+            connected.append(provider_id)
+        except HTTPException:
+            continue  # the Space may be down; the manual fallback still applies
+    return connected
+
+
+@router.post("/stories")
+async def create_story(body: StoryIn, user: User = Depends(A.current_user), db: Session = Depends(A.get_db)):
+    """The one-call entry point: a prompt becomes a finished video.
+
+    Creates the project, plans the storyboard, approves it and starts
+    generation. The engine picks providers itself, and when one runs out or
+    fails mid-story the next provider resumes the SAME scene with the full
+    story-so-far context. Returns the project; poll GET /projects/{id} until
+    COMPLETED, then GET the export file.
+    """
+    providers = await _ensure_free_providers(db, user, body.free_run_budget)
+    title = body.title.strip() or (body.prompt[:60] + ("…" if len(body.prompt) > 60 else ""))
+    pin = ProjectIn(title=title, concept=body.prompt, script="", narration="", target_duration=body.target_duration,
+                    aspect_ratio=body.aspect_ratio, resolution=body.resolution, fps=body.fps, visual_style=body.visual_style,
+                    audience="", project_type="", camera_notes="", character_ids=[], scene_count=body.scene_count,
+                    mode=body.mode, paid_budget=body.paid_budget, require_no_watermark=False, require_commercial=False,
+                    require_storyboard_approval=False, burn_subtitles=body.burn_subtitles, transition=body.transition)
+    p = create_project(pin, user, db)
+    pid = p["id"]
+    planned = await plan_project(pid, None, user, db)
+    if planned["status"] == "AWAITING_USER_APPROVAL":     # cannot happen with approval disabled; defensive
+        approve_storyboard(pid, user, db)
+    started = generate(pid, user, db)
+    E.emit(db, pid, "story_started", f"one-shot story started on: {', '.join(providers) or 'no free provider available'}")
+    return {**started, "providers_connected": providers}
+
+
 @router.post("/projects/{pid}/pause")
 def pause(pid: str, user: User = Depends(A.current_user), db: Session = Depends(A.get_db)):
     p = project_of(db, user, pid)
