@@ -17,7 +17,7 @@ function Auth({ onAuth }) {
   const [mode, setMode] = useState('login'), [f, setF] = useState({ email: '', password: '', name: '' }), [err, setErr] = useState('')
   const go = async (e) => { e.preventDefault(); setErr(''); try { await post('/auth/' + mode, f); onAuth() } catch (x) { setErr(x.message) } }
   return <div className="auth"><div className="brand" style={{ fontSize: 28 }}>VGOH</div>
-    <p className="mut">AI Video Generation Harness. Bring your own provider keys. Your keys, credits and projects stay private to your account; when one provider runs out of credit the next one continues the same video with full context.</p>
+    <p className="mut">AI Video Generation Harness. Bring your own provider keys. Your keys, credits and projects stay private to your account; when a provider runs out of credit the project is handed to the next connected provider with the scene context. This handoff is tested with simulated providers; it has not yet been verified across two real providers.</p>
     <form className="card" onSubmit={go}>
       <h2>{mode === 'login' ? 'Sign in' : 'Create account'}</h2>
       {mode === 'register' && <><label>Name</label><input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></>}
