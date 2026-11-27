@@ -16,7 +16,7 @@ from app.database.models import (GenerationArtifact, GenerationAttempt, Generati
 from app.providers.base import GenerationRequest, ProviderError, capability_supports
 from app.providers.registry import build_provider, context_for
 
-BASE_WEIGHTS = {"consistency": 0.25, "quality": 0.25, "free_credits": 0.20, "cost": 0.10, "reliability": 0.10, "speed": 0.05, "resolution": 0.05}
+BASE_WEIGHTS = {"consistency": 0.25, "quality": 0.25, "free_credits": 0.12, "cost": 0.10, "reliability": 0.10, "speed": 0.05, "resolution": 0.13}
 
 MODE_WEIGHTS = {
     "free_only": BASE_WEIGHTS,
@@ -77,8 +77,12 @@ def measured(db: Session, user_id: str, provider_id: str) -> dict[str, float | N
         .filter(GenerationArtifact.user_id == user_id, GenerationArtifact.provider_id == provider_id).all()
     q = [r[0].get("motion_quality") for r in reports if r[0].get("motion_quality") is not None]
     c = [r[0].get("character_consistency") for r in reports if r[0].get("character_consistency") is not None]
+    # Share of graded clips whose native (pre-post-process) resolution met the target.
+    probes = [r[0].get("probe") or {} for r in reports if (r[0].get("probe") or {}).get("width")]
+    native = [1.0 if (p.get("native_width") or 0) >= p["width"] else 0.0 for p in probes]
     return {"reliability": reliability, "latency_ms": float(lat) if lat else None,
-            "quality": (sum(q) / len(q) / 100) if q else None, "consistency": (sum(c) / len(c) / 100) if c else None, "samples": len(q)}
+            "quality": (sum(q) / len(q) / 100) if q else None, "consistency": (sum(c) / len(c) / 100) if c else None,
+            "native_resolution": (sum(native) / len(native)) if native else None, "samples": len(q)}
 
 
 async def select_provider(db: Session, project: VideoProject, scene: VideoScene, req: GenerationRequest, *, exclude: set[str] | None = None,
@@ -163,6 +167,9 @@ async def select_provider(db: Session, project: VideoProject, scene: VideoScene,
         f_cost = 1.0 if est.amount == 0 else 1.0 / (1.0 + est.amount / max(1.0, req.needed_seconds))
         mw, mh = caps.get("max_width") or 0, caps.get("max_height") or 0
         f_res = min(1.0, (mw * mh) / float(req.width * req.height)) if mw and mh else neutral
+        # measured native resolution (from QA probes) overrides the declared cap once samples exist
+        if m["native_resolution"] is not None:
+            f_res = m["native_resolution"]
         score = (w["consistency"] * f_cons + w["quality"] * f_q + w["free_credits"] * f_free + w["cost"] * f_cost +
                  w["reliability"] * f_rel + w["speed"] * f_speed + w["resolution"] * f_res)
         # conditioning bonus: honoring previous-frame continuity is part of consistency
@@ -170,7 +177,8 @@ async def select_provider(db: Session, project: VideoProject, scene: VideoScene,
             score += 0.05 * w["consistency"] * 4
         cands.append(Candidate(cred, pool, pid, secs, est, caps, score, {
             "consistency": f_cons, "quality": f_q, "free_credits": f_free, "cost": f_cost, "reliability": f_rel, "speed": f_speed, "resolution": f_res,
-            "measured_samples": m["samples"], "neutral_when_unmeasured": neutral, "weights": w, "estimate": {"amount": est.amount, "unit": est.unit, "paid": paid},
+            "measured_samples": m["samples"], "native_resolution_measured": m["native_resolution"],
+            "neutral_when_unmeasured": neutral, "weights": w, "estimate": {"amount": est.amount, "unit": est.unit, "paid": paid},
         }))
     cands.sort(key=lambda c: -c.score)
     if cands:

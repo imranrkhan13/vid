@@ -31,7 +31,9 @@ def compose(*, clips: list[dict[str, Any]], width: int, height: int, fps: int, o
              f"tpad=stop_mode=clone:stop={n},trim=end_frame={n},setpts=PTS-STARTPTS")
         if transition == "fade":
             fd = min(0.15, c["duration"] / 4)
-            f += f",fade=t=in:st=0:d={fd:.3f},fade=t=out:st={c['duration'] - fd:.3f}:d={fd:.3f}"
+            # fade-out starts relative to the TRIMMED length (n frames), not the
+            # pre-trim slot duration, so the fade never lands past the clip end
+            f += f",fade=t=in:st=0:d={fd:.3f},fade=t=out:st={max(0.0, n / fps - fd):.3f}:d={fd:.3f}"
         fparts.append(f + f"[v{i}]")
         total_frames += n
     import os
@@ -45,7 +47,7 @@ def compose(*, clips: list[dict[str, Any]], width: int, height: int, fps: int, o
             sp = workdir / f"seg_{i}.mp4"
             fc = fparts[i].replace(f"[{i}:v]", "[0:v]", 1).replace(f"[v{i}]", "[vo]")
             cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", str(c["path"]), "-filter_complex", fc, "-map", "[vo]", "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                   "-preset", preset, "-crf", "18", "-r", str(fps), "-frames:v", str(max(1, int(round(c["duration"] * fps))))]
+                   "-preset", preset, "-crf", "18", "-profile:v", "high", "-level", "4.2", "-r", str(fps), "-frames:v", str(max(1, int(round(c["duration"] * fps))))]
             if threads:
                 cmd += ["-threads", threads, "-filter_threads", threads]
             fx.run(cmd + [str(sp)], timeout=3600)
@@ -85,7 +87,7 @@ def compose(*, clips: list[dict[str, Any]], width: int, height: int, fps: int, o
     cmd += ["-filter_complex_script", str(script), "-map", f"[{last}]"]
     if audio_path:
         cmd += ["-map", "[aout]", "-c:a", "aac", "-b:a", "160k"]
-    cmd += ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", preset, "-crf", "18", "-r", str(fps), "-frames:v", str(total_frames),
+    cmd += ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", preset, "-crf", "18", "-profile:v", "high", "-level", "4.2", "-r", str(fps), "-frames:v", str(total_frames),
             "-movflags", "+faststart", str(out_path)]
     fx.run(cmd, timeout=3600)
     return {"expected_frames": total_frames, "expected_duration": total_dur, "notes": notes}

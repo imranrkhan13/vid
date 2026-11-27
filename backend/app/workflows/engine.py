@@ -383,8 +383,22 @@ async def poll_job(db: Session, p: VideoProject, s: VideoScene, job: GenerationJ
         await handle_error(db, p, s, job, att, ProviderError("DOWNLOAD_FAILED", err.message))
         return
     actual = st.actual_cost if st.actual_cost is not None else job.reserved
+    # Post-process (denoise + upscale + sharpen) BEFORE QA, so QA grades exactly
+    # what composition consumes. The raw clip is kept in meta["source_path"];
+    # failures fall back to the raw clip.
+    from app.media.postprocess import postprocess
+    meta = {"cost": actual, "latency_ms": int(elapsed * 1000)}
+    try:
+        proc = dest.with_name(dest.stem + "_up.mp4")
+        pp = await asyncio.to_thread(postprocess, dest, proc, width=p.width, height=p.height, fps=p.fps)
+        if pp.get("applied"):
+            meta["source_path"] = str(dest)
+            dest = proc
+        meta["postprocess"] = pp
+    except Exception as e:  # noqa: BLE001 - never lose a generation to post-processing
+        meta["postprocess"] = {"applied": False, "error": str(e)[:200]}
     art = GenerationArtifact(user_id=p.user_id, project_id=p.id, scene_id=s.id, job_id=job.id, provider_id=job.provider_id, kind="clip", path=str(dest),
-                             duration=job.requested_seconds, status="candidate", meta={"cost": actual, "latency_ms": int(elapsed * 1000)})
+                             duration=job.requested_seconds, status="candidate", meta=meta)
     db.add(art)
     if job.pool_id and job.reserved:
         ledger.consume(db, job.pool_id, job.reserved, actual, p.user_id, job.id, job.reserved)
@@ -413,7 +427,7 @@ async def validate_and_decide(db: Session, p: VideoProject, s: VideoScene, job: 
     expected = {"width": p.width, "height": p.height, "duration": job.requested_seconds, "palette_colors": palette_cols, "style_colors": style_cols,
                 "require_no_watermark": p.require_no_watermark}
     rep = await asyncio.to_thread(evaluate_clip, Path(art.path), expected=expected, previous_frame=Path(prev) if prev else None, provider_caps=caps,
-                                  thresholds=(p.brief or {}).get("qa_thresholds"))
+                                  thresholds=(p.brief or {}).get("qa_thresholds"), source_path=(art.meta or {}).get("source_path"))
     db.add(QualityReport(artifact_id=art.id, scene_id=s.id, report=rep, decision=rep["decision"]))
     db.commit()
     emit(db, p.id, "qa", f"scene {s.idx + 1} QA {rep['decision']} (overall {rep.get('overall')})", {"reasons": rep.get("reasons")}, s.id)

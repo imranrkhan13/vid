@@ -33,8 +33,14 @@ def _is_result_url(url: str) -> bool:
 
 
 def _dims(w: int, h: int) -> tuple[int, int]:
-    """(height, width) multiples of 32; long side 704, matching the request's orientation."""
-    return (704, 384) if h >= w else (384, 704)
+    """(height, width) multiples of 32.
+
+    The Space's own UI declares 256-1280 per side (step 32). We request
+    704x704 — the previously verified long side (704) with the short side
+    raised from 384 to 704, ~3.4x more pixels for the post-process stage to
+    work with. Falls back to the live-verified 704x384 on UNSUPPORTED_REQUEST
+    (see submit_generation)."""
+    return (704, 704)
 
 
 class HFSpaceLTXProvider(VideoProvider):
@@ -74,10 +80,11 @@ class HFSpaceLTXProvider(VideoProvider):
 
     async def get_capabilities(self) -> dict[str, Any]:
         return {"label": "Hugging Face Space / LTX-Video distilled (free, shared)", "modes": ["text_to_video", "image_to_video"], "min_duration": 1, "max_duration": 8,
-                "aspect_ratios": ["9:16", "16:9"], "max_width": 704, "max_height": 704, "first_frame": True, "multi_reference": False,
+                "aspect_ratios": ["9:16", "16:9", "1:1"], "max_width": 704, "max_height": 704, "first_frame": True, "multi_reference": False,
                 "character_reference": False, "audio": False, "watermark": None, "commercial_ok": None,
                 "cost_per_second": 0.0, "unit": "runs", "paid": False, "est_latency_s": 30, "speed_score": 0.7, "concurrency": 1,
-                "source": "verified live 2026-11-27 (anonymous calls returned real clips); community Space, no SLA; the free GPU allowance is not readable"}
+                "source": "verified live 2026-11-27 at 704x384 (anonymous calls returned real clips); the Space's UI declares 256-1280 per side "
+                          "(step 32) and 704x704 is requested with a 704x384 fallback on refusal; community Space, no SLA; the free GPU allowance is not readable"}
 
     async def check_health(self):
         try:
@@ -99,8 +106,17 @@ class HFSpaceLTXProvider(VideoProvider):
         return CostEstimate(1.0, "runs", False, "medium", "1 run per clip against the run budget you enter; no money is charged. The real free GPU allowance (ZeroGPU) is small, unreadable, and may allow only a few clips per day")
 
     async def submit_generation(self, request: GenerationRequest) -> str:
+        try:
+            return await self._submit(request, _dims(request.width, request.height))
+        except ProviderError as e:
+            if e.code == "UNSUPPORTED_REQUEST":
+                # The Space refused the larger size; fall back to the verified 704x384.
+                return await self._submit(request, (704, 384) if request.height >= request.width else (384, 704))
+            raise
+
+    async def _submit(self, request: GenerationRequest, dims: tuple[int, int]) -> str:
         import uuid
-        h, w = _dims(request.width, request.height)
+        h, w = dims
         dur = round(min(8.0, max(1.0, request.duration)), 1)
         neg = (request.negative_prompt or "worst quality, inconsistent motion, blurry, jittery, distorted")[:500]
         session = uuid.uuid4().hex[:16]
