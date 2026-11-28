@@ -893,7 +893,7 @@ def ser_cred(db, c: ProviderCredential):
 def providers(user: User = Depends(A.current_user), db: Session = Depends(A.get_db)):
     cat = db.query(GenerationProvider).order_by(GenerationProvider.category, GenerationProvider.name).all()
     creds = db.query(ProviderCredential).filter_by(user_id=user.id).all()
-    return {"catalog": [{"id": g.id, "name": g.name, "category": g.category, "implemented": g.implemented, "verification": g.verification, "docs_url": g.docs_url, "notes": g.notes,
+    return {"catalog": [{"id": g.id, "name": g.name, "category": g.category, "implemented": g.implemented, "verification": g.verification, "docs_url": g.docs_url, "key_url": g.key_url, "notes": g.notes,
                          "verified_at": g.verified_at, "host_family": g.host_family, "is_mock": g.category == "mock"} for g in cat],
             "connections": [ser_cred(db, c) for c in creds]}
 
