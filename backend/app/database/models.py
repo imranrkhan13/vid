@@ -183,6 +183,7 @@ class GenerationProvider(Base):
     implemented: Mapped[bool] = mapped_column(Boolean, default=False)
     verification: Mapped[str] = mapped_column(String(40), default="unverified")
     docs_url: Mapped[str | None] = mapped_column(String(500))
+    key_url: Mapped[str | None] = mapped_column(String(500))  # where to get a key for this provider
     host_family: Mapped[str | None] = mapped_column(String(80))  # shared quota pool family
     notes: Mapped[str | None] = mapped_column(Text)
     verified_at: Mapped[str | None] = mapped_column(String(40))

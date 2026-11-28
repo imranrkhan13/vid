@@ -238,7 +238,7 @@ function Providers() {
       {err && <div className="err">{err}</div>}<div className="row" style={{ marginTop: 12 }}><button>Verify and connect</button><button type="button" className="sec" onClick={() => setSel(null)}>Cancel</button></div></form>}
     <div className="grid">{catalog.map((g) => <div className="card" key={g.id}><div className="row"><b className="sp">{g.name}</b>{g.is_mock && <Pill s="warn">MOCK</Pill>}<Pill s={g.implemented ? 'ok' : ''}>{g.implemented ? 'adapter ready' : 'not implemented'}</Pill></div>
       <div className="mut">{g.category} · {g.verification}</div><p style={{ fontSize: 12 }} className="mut">{g.notes}</p>
-      <div className="row">{g.implemented && <button className="sec" onClick={() => { setSel(g); setErr('') }}>Connect</button>}{g.docs_url && <a href={g.docs_url} target="_blank" rel="noreferrer">Docs</a>}</div></div>)}</div></>
+      <div className="row">{g.implemented && <button className="sec" onClick={() => { setSel(g); setErr('') }}>Connect</button>}{g.key_url && <a href={g.key_url} target="_blank" rel="noreferrer">Get a key</a>}{g.docs_url && <a href={g.docs_url} target="_blank" rel="noreferrer">Docs</a>}<a href="#/help">How to get a free key</a></div></div>)}</div></>
 }
 
 function Characters() {
@@ -258,6 +258,71 @@ function Coverage() {
     <p className="mut">Current status is documented in the project repository under docs/. Mock providers exist only to test the workflow and are always labeled MOCK. No generated result in this app is faked.</p></div></>
 }
 
+
+const FREE_PROVIDERS = [
+  {
+    name: 'Hugging Face Space — LTX-Video (FREE, no key needed)',
+    what: 'Real AI video, free, no account, no key. The app connects it automatically — nothing to do. Optional: a free Hugging Face account token gives the Space its own daily GPU allowance instead of the shared anonymous one.',
+    steps: [
+      'Sign up free at huggingface.co (email confirmation).',
+      'Go to Settings → Access Tokens → New token. Name it anything, type "Read".',
+      'Copy the token (starts with hf_).',
+      'In this app: Providers → find "Free: Hugging Face Space" → Connect → paste the token → set a run budget (how many free clips per day you allow).',
+    ],
+    link: 'https://huggingface.co/settings/tokens', linkLabel: 'huggingface.co/settings/tokens',
+  },
+  {
+    name: 'Replicate (free key; free-trial runs for verified accounts)',
+    what: 'Creating the key is free. Some accounts get limited free "Try for Free" runs of minimax/video-01 (real 6s 720p clips); the allowance is not published. Otherwise each run is $0.50 and the app blocks paid use unless you approve a budget.',
+    steps: [
+      'Sign up at replicate.com (free, no card needed for an account).',
+      'Go to Account → API tokens → Create token.',
+      'Copy the token (starts with r8_).',
+      'In this app: Providers → "API keys" panel or the Replicate card → paste the key.',
+      'Free-trial mode must be enabled by the site operator; everyone else connects as a paid pool that stays blocked until a per-project budget is approved.',
+    ],
+    link: 'https://replicate.com/account/api-tokens', linkLabel: 'replicate.com/account/api-tokens',
+  },
+  {
+    name: 'Manual route — free web apps + import (always free, unlimited)',
+    what: 'The app writes the full scene brief for you (prompt, style, characters, continuity). You generate the clip in any free web app and import it back — the clip goes through the same quality checks as any provider.',
+    steps: [
+      'Free web apps with daily allowances: Google Flow (labs.google/flow — 50 free credits/day ≈ 5 Lite 720p videos), plus the free tiers of the Kling, Luma and Pika consumer apps.',
+      'In this app: open your project → Manual tasks tab → copy the scene prompt (the brief carries the full story context).',
+      'Generate the clip in the web app at the aspect ratio your project uses, and download it.',
+      'In this app: Manual tasks → Import → choose the downloaded file. Repeat per scene.',
+    ],
+    link: 'https://labs.google/flow', linkLabel: 'labs.google/flow (Google Flow)',
+  },
+]
+
+const NOT_FREE = [
+  'fal.ai — no free API tier; occasional free credits apply to their playground only, not the API.',
+  'Pollinations — every video model was flagged paid_only on 2026-11-27.',
+  'Google Gemini API — no free tier for video; the Veo API models were shut down on 2026-10-22.',
+  'Hugging Face Inference Providers — free accounts include no credits; PRO is $2/month.',
+  'Runway, Luma, Kling, Pika APIs — no free tier listed on their pricing pages.',
+]
+
+function Help() {
+  return <>
+    <h1>Help: free providers and how to get keys</h1>
+    <div className="card">
+      <h2>Where to enter keys</h2>
+      <p className="mut">Providers page → <a href="#/providers">API keys panel</a>. Paste one or several keys and press "Save all entered keys". Keys are encrypted on the server and never sent back to the browser.</p>
+    </div>
+    <h2 style={{ marginTop: 18 }}>Free providers</h2>
+    {FREE_PROVIDERS.map((p) => <div className="card" key={p.name}>
+      <h3>{p.name}</h3>
+      <p className="mut">{p.what}</p>
+      <ol style={{ margin: '8px 0', paddingLeft: 20 }}>{p.steps.map((s, i) => <li key={i} style={{ marginBottom: 6 }}>{s}</li>)}</ol>
+      <a href={p.link} target="_blank" rel="noreferrer">Get it here: {p.linkLabel}</a>
+    </div>)}
+    <h2 style={{ marginTop: 18 }}>Not free (verified 2026-11-28 — don&apos;t waste time)</h2>
+    <div className="card"><ul style={{ margin: 0, paddingLeft: 20 }}>{NOT_FREE.map((n) => <li key={n} style={{ marginBottom: 6 }}>{n}</li>)}</ul></div>
+  </>
+}
+
 export default function App() {
   const h = useHash(), [user, setUser] = useState(undefined)
   const load = () => get('/auth/me').then(setUser).catch(() => setUser(null))
@@ -265,8 +330,8 @@ export default function App() {
   if (user === undefined) return <p className="mut" style={{ padding: 20 }}>Loading…</p>
   if (!user) return <Auth onAuth={load} />
   const m = h.match(/^\/p\/(.+)$/)
-  const nav = [['/', 'Dashboard'], ['/new', 'New video'], ['/characters', 'Characters'], ['/providers', 'Providers'], ['/about', 'About']]
+  const nav = [['/', 'Dashboard'], ['/new', 'New video'], ['/characters', 'Characters'], ['/providers', 'Providers'], ['/help', 'Help & keys'], ['/about', 'About']]
   return <div className="shell"><aside className="side"><div className="brand">VGOH</div><nav className="nav">{nav.map(([p, l]) => <a key={p} href={'#' + p} className={h === p ? 'on' : ''}>{l}</a>)}</nav>
     <div className="mut" style={{ marginTop: 20, fontSize: 12 }}>{user.email}<br /><a href="#" onClick={async (e) => { e.preventDefault(); await post('/auth/logout'); setUser(null) }}>Sign out</a></div></aside>
-    <main className="main">{m ? <Project pid={m[1]} key={m[1]} /> : h === '/new' ? <NewProject /> : h === '/providers' ? <Providers /> : h === '/characters' ? <Characters /> : h === '/about' ? <Coverage /> : <Dashboard />}</main></div>
+    <main className="main">{m ? <Project pid={m[1]} key={m[1]} /> : h === '/new' ? <NewProject /> : h === '/providers' ? <Providers /> : h === '/characters' ? <Characters /> : h === '/help' ? <Help /> : h === '/about' ? <Coverage /> : <Dashboard />}</main></div>
 }
